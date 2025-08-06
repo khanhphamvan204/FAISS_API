@@ -9,3 +9,7 @@ pdfplumber
 pandas
 paddleocr
 PyMuPDF
+python-multipart
+docx2txt
+Pillow
+faiss-cpu
