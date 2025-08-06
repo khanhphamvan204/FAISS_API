@@ -30,7 +30,7 @@ def init_ocr():
     
     try:
         logger.info("Đang khởi tạo PaddleOCR...")
-        ocr = PaddleOCR(use_angle_cls=True, lang='vi')
+        ocr = PaddleOCR(use_angle_cls=True, lang='vi',)
         
         # Test để xác định phương thức nào hoạt động
         test_img = "test_temp.png"
