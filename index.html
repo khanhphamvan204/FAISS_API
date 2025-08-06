@@ -1,0 +1,1461 @@
+<!DOCTYPE html>
+<html lang="vi">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FAISS API Management</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            opacity: 0.9;
+            font-size: 1.1em;
+        }
+
+        .tabs {
+            display: flex;
+            background: #f8f9fa;
+            border-bottom: 2px solid #e9ecef;
+        }
+
+        .tab {
+            flex: 1;
+            padding: 20px;
+            text-align: center;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 1.1em;
+            transition: all 0.3s ease;
+            border-bottom: 3px solid transparent;
+        }
+
+        .tab:hover {
+            background: #e9ecef;
+        }
+
+        .tab.active {
+            background: white;
+            border-bottom: 3px solid #4facfe;
+            color: #4facfe;
+        }
+
+        .tab-content {
+            padding: 40px;
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        /* Upload Form Styles */
+        .form-group {
+            margin-bottom: 25px;
+        }
+
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #333;
+            font-size: 1.1em;
+        }
+
+        input[type="text"],
+        input[type="file"],
+        select,
+        textarea {
+            width: 100%;
+            padding: 15px;
+            border: 2px solid #e1e8ed;
+            border-radius: 10px;
+            font-size: 1em;
+            transition: all 0.3s ease;
+            background: #f8f9fa;
+        }
+
+        input[type="text"]:focus,
+        input[type="file"]:focus,
+        select:focus,
+        textarea:focus {
+            outline: none;
+            border-color: #4facfe;
+            box-shadow: 0 0 0 3px rgba(79, 172, 254, 0.1);
+            background: white;
+        }
+
+        select {
+            cursor: pointer;
+            appearance: none;
+            background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='m6 8 4 4 4-4'/%3e%3c/svg%3e");
+            background-position: right 12px center;
+            background-repeat: no-repeat;
+            background-size: 16px;
+            padding-right: 40px;
+        }
+
+        .multi-select-wrapper {
+            position: relative;
+        }
+
+        .multi-select {
+            min-height: 120px;
+            max-height: 200px;
+            overflow-y: auto;
+            border: 2px solid #e1e8ed;
+            border-radius: 10px;
+            background: #f8f9fa;
+            padding: 10px;
+        }
+
+        .multi-select:focus-within {
+            border-color: #4facfe;
+            box-shadow: 0 0 0 3px rgba(79, 172, 254, 0.1);
+            background: white;
+        }
+
+        .checkbox-item {
+            display: flex;
+            align-items: center;
+            padding: 8px 5px;
+            margin-bottom: 5px;
+            border-radius: 5px;
+            transition: background-color 0.2s ease;
+        }
+
+        .checkbox-item:hover {
+            background-color: #e6f3ff;
+        }
+
+        .checkbox-item input[type="checkbox"] {
+            width: auto;
+            margin-right: 10px;
+            transform: scale(1.2);
+        }
+
+        .checkbox-item label {
+            margin: 0;
+            font-weight: 500;
+            font-size: 0.95em;
+            cursor: pointer;
+            flex: 1;
+        }
+
+        .user-info {
+            font-size: 0.8em;
+            color: #666;
+            margin-left: 5px;
+        }
+
+        .selected-count {
+            font-size: 0.9em;
+            color: #4facfe;
+            margin-top: 5px;
+            font-weight: 500;
+        }
+
+        .file-input-wrapper {
+            position: relative;
+            overflow: hidden;
+            display: inline-block;
+            width: 100%;
+        }
+
+        .file-input-wrapper input[type=file] {
+            position: absolute;
+            left: -9999px;
+        }
+
+        .file-input-label {
+            cursor: pointer;
+            display: block;
+            padding: 15px;
+            border: 2px dashed #4facfe;
+            border-radius: 10px;
+            text-align: center;
+            background: #f8f9ff;
+            transition: all 0.3s ease;
+        }
+
+        .file-input-label:hover {
+            background: #e6f3ff;
+            border-color: #2196F3;
+        }
+
+        .file-input-label i {
+            font-size: 2em;
+            color: #4facfe;
+            margin-bottom: 10px;
+            display: block;
+        }
+
+        .submit-btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 18px 40px;
+            border: none;
+            border-radius: 50px;
+            font-size: 1.2em;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            width: 100%;
+        }
+
+        .submit-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
+        }
+
+        .submit-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        /* Document List Styles */
+        .search-filter-bar {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 30px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .search-input {
+            flex: 1;
+            min-width: 300px;
+            padding: 12px 20px;
+            border: 2px solid #e1e8ed;
+            border-radius: 25px;
+            font-size: 1em;
+            background: #f8f9fa;
+        }
+
+        .search-input:focus {
+            outline: none;
+            border-color: #4facfe;
+            background: white;
+        }
+
+        .filter-select {
+            padding: 12px 20px;
+            border: 2px solid #e1e8ed;
+            border-radius: 25px;
+            background: #f8f9fa;
+            cursor: pointer;
+        }
+
+        .refresh-btn {
+            background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 25px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 1em;
+            transition: all 0.3s ease;
+        }
+
+        .refresh-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 15px rgba(40, 167, 69, 0.3);
+        }
+
+        .documents-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+            gap: 20px;
+        }
+
+        .document-card {
+            background: white;
+            border: 2px solid #e9ecef;
+            border-radius: 15px;
+            padding: 20px;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .document-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+            border-color: #4facfe;
+        }
+
+        .document-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: start;
+            margin-bottom: 15px;
+        }
+
+        .document-title {
+            font-weight: 600;
+            font-size: 1.1em;
+            color: #333;
+            word-break: break-word;
+            flex: 1;
+            margin-right: 10px;
+        }
+
+        .document-type {
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.8em;
+            font-weight: 600;
+            text-transform: uppercase;
+            white-space: nowrap;
+        }
+
+        .document-type.public {
+            background: #e3f2fd;
+            color: #1565c0;
+        }
+
+        .document-type.student {
+            background: #f3e5f5;
+            color: #7b1fa2;
+        }
+
+        .document-type.teacher {
+            background: #e8f5e8;
+            color: #2e7d32;
+        }
+
+        .document-type.admin {
+            background: #fff3e0;
+            color: #ef6c00;
+        }
+
+        .document-info {
+            color: #666;
+            font-size: 0.9em;
+            line-height: 1.6;
+            margin-bottom: 15px;
+        }
+
+        .document-info div {
+            margin-bottom: 5px;
+        }
+
+        .document-roles {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 5px;
+            margin-bottom: 15px;
+        }
+
+        .role-tag {
+            padding: 2px 8px;
+            background: #f0f8ff;
+            color: #1976d2;
+            border-radius: 12px;
+            font-size: 0.75em;
+            font-weight: 500;
+        }
+
+        .document-actions {
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+        }
+
+        .delete-btn {
+            background: linear-gradient(135deg, #dc3545 0%, #c82333 100%);
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 20px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 0.9em;
+            transition: all 0.3s ease;
+        }
+
+        .delete-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(220, 53, 69, 0.3);
+        }
+
+        .delete-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .info-btn {
+            background: linear-gradient(135deg, #17a2b8 0%, #138496 100%);
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 20px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 0.9em;
+            transition: all 0.3s ease;
+        }
+
+        .info-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(23, 162, 184, 0.3);
+        }
+
+        .edit-btn {
+            background: linear-gradient(135deg, #ffc107 0%, #ff9800 100%);
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 20px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 0.9em;
+            transition: all 0.3s ease;
+        }
+
+        .edit-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(255, 193, 7, 0.3);
+        }
+
+        /* Loading and Results */
+        .loading {
+            display: none;
+            text-align: center;
+            margin-top: 20px;
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 40px;
+            height: 40px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #4facfe;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+
+        .result {
+            margin-top: 30px;
+            padding: 20px;
+            border-radius: 10px;
+            display: none;
+        }
+
+        .result.success {
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+        }
+
+        .result.error {
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+        }
+
+        .result.info {
+            background: #d1ecf1;
+            border: 1px solid #bee5eb;
+            color: #0c5460;
+        }
+
+        /* Modal */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(5px);
+        }
+
+        .modal-content {
+            background-color: white;
+            margin: 5% auto;
+            padding: 30px;
+            border-radius: 15px;
+            width: 90%;
+            max-width: 800px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+            animation: modalSlideIn 0.3s ease;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+
+        @keyframes modalSlideIn {
+            from {
+                opacity: 0;
+                transform: translateY(-50px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .modal-header {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        .modal-header h2 {
+            color: #333;
+            font-size: 1.5em;
+            margin-bottom: 10px;
+        }
+
+        .modal-buttons {
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+            margin-top: 25px;
+        }
+
+        .confirm-btn {
+            background: linear-gradient(135deg, #dc3545 0%, #c82333 100%);
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            border-radius: 25px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 1em;
+            transition: all 0.3s ease;
+        }
+
+        .cancel-btn {
+            background: #6c757d;
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            border-radius: 25px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 1em;
+            transition: all 0.3s ease;
+        }
+
+        .cancel-btn:hover,
+        .confirm-btn:hover {
+            transform: translateY(-2px);
+        }
+
+        .update-btn {
+            background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            border-radius: 25px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 1em;
+            transition: all 0.3s ease;
+        }
+
+        .update-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 15px rgba(40, 167, 69, 0.3);
+        }
+
+        .update-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        /* Stats */
+        .stats-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: #f8f9fa;
+            padding: 15px 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+        }
+
+        .stats-item {
+            text-align: center;
+        }
+
+        .stats-number {
+            font-size: 1.5em;
+            font-weight: 700;
+            color: #4facfe;
+        }
+
+        .stats-label {
+            font-size: 0.9em;
+            color: #666;
+            margin-top: 5px;
+        }
+
+        /* API Status */
+        .api-status {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 10px 20px;
+            border-radius: 25px;
+            font-weight: 600;
+            font-size: 0.9em;
+            z-index: 100;
+        }
+
+        .api-status.online {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .api-status.offline {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        /* Empty State */
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #666;
+        }
+
+        .empty-state h3 {
+            font-size: 1.5em;
+            margin-bottom: 15px;
+            color: #333;
+        }
+
+        .empty-state p {
+            font-size: 1.1em;
+            line-height: 1.6;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .form-row {
+                grid-template-columns: 1fr;
+                gap: 15px;
+            }
+
+            .container {
+                margin: 10px;
+            }
+
+            .tab-content {
+                padding: 20px;
+            }
+
+            .documents-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .search-filter-bar {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .search-input {
+                min-width: auto;
+            }
+
+            .stats-bar {
+                flex-direction: column;
+                gap: 15px;
+            }
+
+            .document-actions {
+                flex-direction: column;
+            }
+
+            .modal-content {
+                margin: 2% auto;
+                width: 95%;
+                max-height: 95vh;
+            }
+        }
+
+        .file-info {
+            margin-top: 10px;
+            padding: 10px;
+            background: #e3f2fd;
+            border-radius: 5px;
+            font-size: 0.9em;
+            color: #1565c0;
+        }
+
+        .supported-formats {
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            color: #856404;
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+        }
+
+        .supported-formats h4 {
+            margin-bottom: 10px;
+        }
+
+        .reset-btn {
+            background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 25px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 1em;
+            transition: all 0.3s ease;
+            margin-top: 15px;
+            display: inline-block;
+        }
+
+        .reset-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 15px rgba(40, 167, 69, 0.3);
+        }
+
+        /* Update Form Styles */
+        .update-form {
+            margin-top: 20px;
+        }
+
+        .update-form .form-group {
+            margin-bottom: 20px;
+        }
+
+        .current-value {
+            background: #f8f9fa;
+            padding: 10px;
+            border-radius: 5px;
+            margin-bottom: 10px;
+            font-size: 0.9em;
+            color: #666;
+        }
+
+        .checkbox-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 10px;
+            max-height: 150px;
+            overflow-y: auto;
+            padding: 10px;
+            border: 1px solid #e1e8ed;
+            border-radius: 5px;
+            background: #f8f9fa;
+        }
+
+        .change-indicator {
+            font-size: 0.8em;
+            padding: 2px 6px;
+            border-radius: 3px;
+            margin-left: 8px;
+        }
+
+        .change-indicator.modified {
+            background: #fff3cd;
+            color: #856404;
+        }
+
+        .change-indicator.unchanged {
+            background: #d4edda;
+            color: #155724;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="api-status" id="apiStatus">Checking API...</div>
+
+    <div class="container">
+        <div class="header">
+            <h1>🚀 FAISS API Management</h1>
+            <p>Quản lý tài liệu và vector embedding</p>
+        </div>
+
+        <!-- Update Document Modal -->
+        <div id="updateModal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2>✏️ Cập nhật tài liệu</h2>
+                    <p>Chỉnh sửa thông tin tài liệu</p>
+                </div>
+
+                <form id="updateForm" class="update-form">
+                    <input type="hidden" id="updateDocId" name="docId">
+
+                    <div class="form-group">
+                        <label for="updateFilename">📁 Tên file:</label>
+                        <div class="current-value" id="currentFilename"></div>
+                        <input type="text" id="updateFilename" name="filename"
+                            placeholder="Nhập tên file mới (để trống nếu không thay đổi)">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="updateUploadedBy">👤 Người upload:</label>
+                        <div class="current-value" id="currentUploadedBy"></div>
+                        <input type="text" id="updateUploadedBy" name="uploaded_by"
+                            placeholder="Nhập tên người upload mới (để trống nếu không thay đổi)">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="updateFileType">📂 Loại file:</label>
+                        <div class="current-value" id="currentFileType"></div>
+                        <select id="updateFileType" name="file_type">
+                            <option value="">-- Không thay đổi --</option>
+                            <option value="public">🌐 Thông báo chung (Public)</option>
+                            <option value="student">🎓 Sinh viên (Student)</option>
+                            <option value="teacher">👨‍🏫 Giảng viên (Teacher)</option>
+                            <option value="admin">⚙️ Quản trị viên (Admin)</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label>👥 Phân quyền người dùng:</label>
+                        <div class="current-value" id="currentUsers"></div>
+                        <div class="checkbox-grid" id="updateUserSelect">
+                            <div class="checkbox-item">
+                                <input type="checkbox" id="update_user_001" value="user_001">
+                                <label for="update_user_001">Nguyễn Văn A (user_001)</label>
+                            </div>
+                            <div class="checkbox-item">
+                                <input type="checkbox" id="update_user_002" value="user_002">
+                                <label for="update_user_002">Trần Thị B (user_002)</label>
+                            </div>
+                            <div class="checkbox-item">
+                                <input type="checkbox" id="update_user_003" value="user_003">
+                                <label for="update_user_003">Lê Văn C (user_003)</label>
+                            </div>
+                            <div class="checkbox-item">
+                                <input type="checkbox" id="update_user_004" value="user_004">
+                                <label for="update_user_004">Phạm Thị D (user_004)</label>
+                            </div>
+                            <div class="checkbox-item">
+                                <input type="checkbox" id="update_user_005" value="user_005">
+                                <label for="update_user_005">Hoàng Văn E (user_005)</label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label>📚 Chủ đề:</label>
+                        <div class="current-value" id="currentSubjects"></div>
+                        <div class="checkbox-grid" id="updateSubjectSelect">
+                            <div class="checkbox-item">
+                                <input type="checkbox" id="update_subject_cntt" value="cntt">
+                                <label for="update_subject_cntt">Công nghệ thông tin</label>
+                            </div>
+                            <div class="checkbox-item">
+                                <input type="checkbox" id="update_subject_toan" value="toan">
+                                <label for="update_subject_toan">Toán học</label>
+                            </div>
+                            <div class="checkbox-item">
+                                <input type="checkbox" id="update_subject_vatly" value="vatly">
+                                <label for="update_subject_vatly">Vật lý</label>
+                            </div>
+                            <div class="checkbox-item">
+                                <input type="checkbox" id="update_subject_hoa" value="hoa">
+                                <label for="update_subject_hoa">Hóa học</label>
+                            </div>
+                            <div class="checkbox-item">
+                                <input type="checkbox" id="update_subject_sinh" value="sinh">
+                                <label for="update_subject_sinh">Sinh học</label>
+                            </div>
+                            <div class="checkbox-item">
+                                <input type="checkbox" id="update_subject_chung" value="chung">
+                                <label for="update_subject_chung">Chung</label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="loading" id="updateLoading" style="display: none;">
+                        <div class="spinner"></div>
+                        <p>Đang cập nhật...</p>
+                    </div>
+                </form>
+
+                <div class="modal-buttons">
+                    <button class="cancel-btn" onclick="closeUpdateModal()">Hủy</button>
+                    <button class="update-btn" id="confirmUpdateBtn" onclick="confirmUpdate()">✏️ Cập nhật</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Delete Document Modal -->
+        <div id="deleteModal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2>🗑️ Xác nhận xóa tài liệu</h2>
+                    <p>Bạn có chắc muốn xóa tài liệu này không?</p>
+                </div>
+                <p id="deleteConfirmText"></p>
+                <div class="loading" id="deleteLoading" style="display: none;">
+                    <div class="spinner"></div>
+                    <p>Đang xóa...</p>
+                </div>
+                <div class="modal-buttons">
+                    <button class="cancel-btn" onclick="closeDeleteModal()">Hủy</button>
+                    <button class="confirm-btn" id="confirmDeleteBtn" onclick="confirmDelete()">Xóa</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="tabs">
+            <div class="tab active" onclick="switchTab('upload')">
+                📤 Upload Documents
+            </div>
+            <div class="tab" onclick="switchTab('manage')">
+                📋 Manage Documents
+            </div>
+        </div>
+
+        <!-- Upload Tab -->
+        <div class="tab-content active" id="uploadTab">
+            <div class="supported-formats">
+                <h4>📁 Định dạng file được hỗ trợ:</h4>
+                <p>PDF, TXT, DOCX, CSV, XLSX, XLS</p>
+            </div>
+
+            <form id="uploadForm">
+                <div class="form-group">
+                    <label for="file">📎 Chọn file:</label>
+                    <div class="file-input-wrapper">
+                        <input type="file" id="file" name="file" required accept=".pdf,.txt,.docx,.csv,.xlsx,.xls">
+                        <label for="file" class="file-input-label">
+                            <i>📁</i>
+                            <span>Click để chọn file hoặc kéo thả file vào đây</span>
+                        </label>
+                    </div>
+                    <div class="file-info" id="fileInfo" style="display: none;"></div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="uploaded_by">👤 Người upload:</label>
+                        <input type="text" id="uploaded_by" name="uploaded_by" placeholder="Nhập tên người upload"
+                            required>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="file_type">📂 Loại file:</label>
+                        <select id="file_type" name="file_type" required>
+                            <option value="">-- Chọn loại file --</option>
+                            <option value="public">🌐 Thông báo chung (Public)</option>
+                            <option value="student">🎓 Sinh viên (Student)</option>
+                            <option value="teacher">👨‍🏫 Giảng viên (Teacher)</option>
+                            <option value="admin">⚙️ Quản trị viên (Admin)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>👥 Phân quyền người dùng (User ID):</label>
+                        <div class="multi-select-wrapper">
+                            <div class="multi-select" id="userSelect">
+                                <div class="checkbox-item">
+                                    <input type="checkbox" id="user_001" value="user_001">
+                                    <label for="user_001">
+                                        Nguyễn Văn A
+                                        <span class="user-info">user_001 • teacher • cntt</span>
+                                    </label>
+                                </div>
+                                <div class="checkbox-item">
+                                    <input type="checkbox" id="user_002" value="user_002">
+                                    <label for="user_002">
+                                        Trần Thị B
+                                        <span class="user-info">user_002 • teacher • toan</span>
+                                    </label>
+                                </div>
+                                <div class="checkbox-item">
+                                    <input type="checkbox" id="user_003" value="user_003">
+                                    <label for="user_003">
+                                        Lê Văn C
+                                        <span class="user-info">user_003 • student • cntt</span>
+                                    </label>
+                                </div>
+                                <div class="checkbox-item">
+                                    <input type="checkbox" id="user_004" value="user_004">
+                                    <label for="user_004">
+                                        Phạm Thị D
+                                        <span class="user-info">user_004 • admin • system</span>
+                                    </label>
+                                </div>
+                                <div class="checkbox-item">
+                                    <input type="checkbox" id="user_005" value="user_005">
+                                    <label for="user_005">
+                                        Hoàng Văn E
+                                        <span class="user-info">user_005 • teacher • vatly</span>
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="selected-count" id="userCount">Đã chọn: 0 người dùng</div>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label>📚 Chủ đề (Subject):</label>
+                        <div class="multi-select-wrapper">
+                            <div class="multi-select" id="subjectSelect">
+                                <div class="checkbox-item">
+                                    <input type="checkbox" id="subject_cntt" value="cntt">
+                                    <label for="subject_cntt">
+                                        Công nghệ thông tin
+                                        <span class="user-info">cntt</span>
+                                    </label>
+                                </div>
+                                <div class="checkbox-item">
+                                    <input type="checkbox" id="subject_toan" value="toan">
+                                    <label for="subject_toan">
+                                        Toán học
+                                        <span class="user-info">toan</span>
+                                    </label>
+                                </div>
+                                <div class="checkbox-item">
+                                    <input type="checkbox" id="subject_vatly" value="vatly">
+                                    <label for="subject_vatly">
+                                        Vật lý
+                                        <span class="user-info">vatly</span>
+                                    </label>
+                                </div>
+                                <div class="checkbox-item">
+                                    <input type="checkbox" id="subject_hoa" value="hoa">
+                                    <label for="subject_hoa">
+                                        Hóa học
+                                        <span class="user-info">hoa</span>
+                                    </label>
+                                </div>
+                                <div class="checkbox-item">
+                                    <input type="checkbox" id="subject_sinh" value="sinh">
+                                    <label for="subject_sinh">
+                                        Sinh học
+                                        <span class="user-info">sinh</span>
+                                    </label>
+                                </div>
+                                <div class="checkbox-item">
+                                    <input type="checkbox" id="subject_chung" value="chung">
+                                    <label for="subject_chung">
+                                        Chung
+                                        <span class="user-info">chung</span>
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="selected-count" id="subjectCount">Đã chọn: 0 chủ đề</div>
+                        </div>
+                    </div>
+                </div>
+
+                <button type="submit" class="submit-btn" id="submitBtn">📤 Tải lên</button>
+                <div class="loading" id="loading" style="display: none;">
+                    <div class="spinner"></div>
+                    <p>Đang tải lên...</p>
+                </div>
+            </form>
+        </div>
+
+        <!-- Manage Tab -->
+        <div class="tab-content" id="manageTab">
+            <div class="stats-bar">
+                <div class="stats-item">
+                    <div class="stats-number" id="statsTotal">0</div>
+                    <div class="stats-label">Tổng tài liệu</div>
+                </div>
+                <div class="stats-item">
+                    <div class="stats-number" id="statsShowing">0</div>
+                    <div class="stats-label">Đang hiển thị</div>
+                </div>
+            </div>
+
+            <div class="search-filter-bar">
+                <input type="text" id="searchInput" class="search-input"
+                    placeholder="Tìm kiếm theo tên hoặc người upload...">
+                <select id="filterType" class="filter-select">
+                    <option value="">Tất cả loại</option>
+                    <option value="public">Thông báo chung</option>
+                    <option value="student">Sinh viên</option>
+                    <option value="teacher">Giảng viên</option>
+                    <option value="admin">Quản trị viên</option>
+                </select>
+                <button class="refresh-btn" id="refreshBtn">🔄 Làm mới</button>
+            </div>
+
+            <div class="documents-grid" id="documentsGrid"></div>
+            <div class="loading" id="loading" style="display: none;">
+                <div class="spinner"></div>
+                <p>Đang tải...</p>
+            </div>
+            <div class="result" id="manageResult"></div>
+        </div>
+    </div>
+
+    <script>
+        // Biến toàn cục để lưu tài liệu đang được chỉnh sửa hoặc xóa
+        let documentToUpdate = null;
+        let documentToDelete = null;
+
+        // Chuyển đổi tab
+        function switchTab(tabId) {
+            document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+            document.getElementById(tabId + 'Tab').classList.add('active');
+            document.querySelector(`.tab[onclick="switchTab('${tabId}')"]`).classList.add('active');
+        }
+
+        // Mở modal cập nhật
+        function openUpdateModal(docId) {
+            documentToUpdate = null;
+            document.getElementById('updateModal').style.display = 'block';
+            document.getElementById('updateLoading').style.display = 'block';
+            document.getElementById('confirmUpdateBtn').disabled = true;
+
+            // Lấy thông tin tài liệu từ API
+            fetch(`${API_BASE_URL}/documents/vector/${docId}`)
+                .then(response => {
+                    if (!response.ok) throw new Error('Không tìm thấy tài liệu');
+                    return response.json();
+                })
+                .then(doc => {
+                    documentToUpdate = doc;
+                    // Điền thông tin hiện tại
+                    document.getElementById('updateDocId').value = doc._id;
+                    document.getElementById('currentFilename').textContent = doc.filename || 'Không có';
+                    document.getElementById('currentUploadedBy').textContent = doc.uploaded_by || 'Không có';
+                    document.getElementById('currentFileType').textContent = doc.file_type || 'Không có';
+                    document.getElementById('currentUsers').textContent = JSON.stringify(doc.role?.user || []).replace(/"/g, '') || 'Không có';
+                    document.getElementById('currentSubjects').textContent = JSON.stringify(doc.role?.subject || []).replace(/"/g, '') || 'Không có';
+
+                    // Reset form
+                    document.getElementById('updateFilename').value = '';
+                    document.getElementById('updateUploadedBy').value = '';
+                    document.getElementById('updateFileType').value = '';
+                    document.querySelectorAll('#updateUserSelect input[type="checkbox"]').forEach(checkbox => checkbox.checked = false);
+                    document.querySelectorAll('#updateSubjectSelect input[type="checkbox"]').forEach(checkbox => checkbox.checked = false);
+
+                    // Điền giá trị mặc định nếu có thay đổi
+                    if (doc.role?.user) {
+                        doc.role.user.forEach(user => {
+                            const checkbox = document.getElementById(`update_${user}`);
+                            if (checkbox) checkbox.checked = true;
+                        });
+                    }
+                    if (doc.role?.subject) {
+                        doc.role.subject.forEach(subject => {
+                            const checkbox = document.getElementById(`update_subject_${subject}`);
+                            if (checkbox) checkbox.checked = true;
+                        });
+                    }
+                })
+                .catch(error => {
+                    showManageResult(`❌ Lỗi khi tải thông tin: ${error.message}`, 'error');
+                })
+                .finally(() => {
+                    document.getElementById('updateLoading').style.display = 'none';
+                    document.getElementById('confirmUpdateBtn').disabled = false;
+                });
+        }
+
+        // Đóng modal cập nhật
+        function closeUpdateModal() {
+            document.getElementById('updateModal').style.display = 'none';
+            document.getElementById('updateForm').reset();
+        }
+
+        // Xử lý cập nhật tài liệu
+        async function confirmUpdate() {
+            if (!documentToUpdate) return;
+
+            const confirmUpdateBtn = document.getElementById('confirmUpdateBtn');
+            confirmUpdateBtn.disabled = true;
+            confirmUpdateBtn.textContent = 'Đang cập nhật...';
+            document.getElementById('updateLoading').style.display = 'block';
+
+            const formData = new FormData();
+            formData.append('doc_id', document.getElementById('updateDocId').value);
+
+            const newFilename = document.getElementById('updateFilename').value.trim();
+            if (newFilename) formData.append('filename', newFilename);
+
+            const newUploadedBy = document.getElementById('updateUploadedBy').value.trim();
+            if (newUploadedBy) formData.append('uploaded_by', newUploadedBy);
+
+            const newFileType = document.getElementById('updateFileType').value;
+            if (newFileType) formData.append('file_type', newFileType);
+
+            const roleUser = [];
+            document.querySelectorAll('#updateUserSelect input[type="checkbox"]:checked').forEach(checkbox => {
+                roleUser.push(checkbox.value);
+            });
+            if (roleUser.length) formData.append('role_user', JSON.stringify(roleUser));
+
+            const roleSubject = [];
+            document.querySelectorAll('#updateSubjectSelect input[type="checkbox"]:checked').forEach(checkbox => {
+                roleSubject.push(checkbox.value);
+            });
+            if (roleSubject.length) formData.append('role_subject', JSON.stringify(roleSubject));
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/documents/vector/${documentToUpdate._id}`, {
+                    method: 'PUT',
+                    body: formData
+                });
+
+                const result = await response.json();
+
+                if (response.ok) {
+                    showManageResult(`✅ Cập nhật thành công tài liệu: ${documentToUpdate.filename}`, 'success');
+                    closeUpdateModal();
+                    loadDocuments(); // Tải lại danh sách
+                } else {
+                    throw new Error(result.detail || 'Cập nhật thất bại');
+                }
+            } catch (error) {
+                showManageResult(`❌ Lỗi khi cập nhật: ${error.message}`, 'error');
+            } finally {
+                confirmUpdateBtn.disabled = false;
+                confirmUpdateBtn.textContent = '✏️ Cập nhật';
+                document.getElementById('updateLoading').style.display = 'none';
+            }
+        }
+
+        // Mở modal xóa
+        function openDeleteModal(docId, filename) {
+            documentToDelete = { _id: docId, filename: filename };
+            document.getElementById('deleteModal').style.display = 'block';
+            document.getElementById('deleteConfirmText').textContent = `Bạn có chắc muốn xóa tài liệu "${filename}"?`;
+        }
+
+        // Đóng modal xóa
+        function closeDeleteModal() {
+            document.getElementById('deleteModal').style.display = 'none';
+        }
+
+        // Xử lý xóa tài liệu
+        async function confirmDelete() {
+            if (!documentToDelete) return;
+
+            const confirmDeleteBtn = document.getElementById('confirmDeleteBtn');
+            confirmDeleteBtn.disabled = true;
+            document.getElementById('deleteLoading').style.display = 'block';
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/documents/vector/${documentToDelete._id}`, {
+                    method: 'DELETE'
+                });
+
+                const result = await response.json();
+
+                if (response.ok) {
+                    showManageResult(`✅ Xóa thành công tài liệu: ${documentToDelete.filename}`, 'success');
+                    closeDeleteModal();
+                    loadDocuments();
+                } else {
+                    throw new Error(result.detail || 'Failed to delete document');
+                }
+            } catch (error) {
+                showManageResult(`❌ Lỗi khi xóa: ${error.message}`, 'error');
+            } finally {
+                document.getElementById('deleteLoading').style.display = 'none';
+                confirmDeleteBtn.disabled = false;
+            }
+        }
+
+        // Tải danh sách tài liệu
+        async function loadDocuments() {
+            const searchInput = document.getElementById('searchInput').value.toLowerCase();
+            const filterType = document.getElementById('filterType').value;
+
+            document.getElementById('loading').style.display = 'block';
+            document.querySelectorAll('.document-card').forEach(card => card.remove());
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/documents/list?file_type=${filterType}&limit=100`);
+                if (!response.ok) throw new Error('Không thể tải danh sách tài liệu');
+                const data = await response.json();
+                const documents = data.documents;
+
+                const grid = document.querySelector('.documents-grid');
+                documents.forEach(doc => {
+                    if (doc.filename.toLowerCase().includes(searchInput) || doc.uploaded_by.toLowerCase().includes(searchInput)) {
+                        const card = document.createElement('div');
+                        card.className = 'document-card';
+                        card.innerHTML = `
+                            <div class="document-header">
+                                <div class="document-title">${doc.filename}</div>
+                                <div class="document-type ${doc.file_type}">${doc.file_type}</div>
+                            </div>
+                            <div class="document-info">
+                                <div>👤 Người upload: ${doc.uploaded_by}</div>
+                                <div>📅 Ngày tạo: ${new Date(doc.createdAt).toLocaleDateString('vi-VN')}</div>
+                            </div>
+                            <div class="document-roles">
+                                ${doc.role?.user.map(user => `<span class="role-tag">${user}</span>`).join('') || ''}
+                                ${doc.role?.subject.map(subject => `<span class="role-tag">${subject}</span>`).join('') || ''}
+                            </div>
+                            <div class="document-actions">
+                                <button class="info-btn" onclick="openInfoModal('${doc._id}')">ℹ️ Chi tiết</button>
+                                <button class="edit-btn" onclick="openUpdateModal('${doc._id}')">✏️ Sửa</button>
+                                <button class="delete-btn" onclick="openDeleteModal('${doc._id}', '${doc.filename}')">🗑️ Xóa</button>
+                            </div>
+                        `;
+                        grid.appendChild(card);
+                    }
+                });
+
+                document.getElementById('statsTotal').textContent = data.total;
+                document.getElementById('statsShowing').textContent = data.showing;
+            } catch (error) {
+                showManageResult(`❌ Lỗi khi tải danh sách: ${error.message}`, 'error');
+            } finally {
+                document.getElementById('loading').style.display = 'none';
+            }
+        }
+
+        // Hiển thị kết quả
+        function showManageResult(message, type) {
+            const result = document.getElementById('manageResult');
+            result.textContent = message;
+            result.className = `result ${type}`;
+            result.style.display = 'block';
+            setTimeout(() => result.style.display = 'none', 5000);
+        }
+
+        // Xử lý upload file
+        document.getElementById('file').addEventListener('change', function (e) {
+            const fileInfo = document.getElementById('fileInfo');
+            if (e.target.files.length > 0) {
+                fileInfo.textContent = `Đã chọn: ${e.target.files[0].name} (${(e.target.files[0].size / 1024).toFixed(2)} KB)`;
+                fileInfo.style.display = 'block';
+            } else {
+                fileInfo.style.display = 'none';
+            }
+        });
+
+        document.getElementById('uploadForm').addEventListener('submit', async function (e) {
+            e.preventDefault();
+
+            const formData = new FormData(this);
+            const roleUser = [];
+            document.querySelectorAll('#userSelect input[type="checkbox"]:checked').forEach(checkbox => roleUser.push(checkbox.value));
+            const roleSubject = [];
+            document.querySelectorAll('#subjectSelect input[type="checkbox"]:checked').forEach(checkbox => roleSubject.push(checkbox.value));
+            formData.append('role_user', JSON.stringify(roleUser));
+            formData.append('role_subject', JSON.stringify(roleSubject));
+
+            document.getElementById('submitBtn').disabled = true;
+            document.getElementById('loading').style.display = 'block';
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/documents/vector/add`, {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const result = await response.json();
+
+                if (response.ok) {
+                    showManageResult(`✅ Tải lên thành công: ${result.filename}`, 'success');
+                    this.reset();
+                    document.getElementById('fileInfo').style.display = 'none';
+                    loadDocuments();
+                } else {
+                    throw new Error(result.detail || 'Tải lên thất bại');
+                }
+            } catch (error) {
+                showManageResult(`❌ Lỗi khi tải lên: ${error.message}`, 'error');
+            } finally {
+                document.getElementById('submitBtn').disabled = false;
+                document.getElementById('loading').style.display = 'none';
+            }
+        });
+
+        // Khởi tạo khi trang tải
+        const API_BASE_URL = 'http://localhost:8000';
+        document.addEventListener('DOMContentLoaded', () => {
+            // Kiểm tra trạng thái API
+            fetch(`${API_BASE_URL}/health`)
+                .then(response => {
+                    document.getElementById('apiStatus').className = 'api-status ' + (response.ok ? 'online' : 'offline');
+                    document.getElementById('apiStatus').textContent = response.ok ? 'API Online' : 'API Offline';
+                })
+                .catch(() => {
+                    document.getElementById('apiStatus').className = 'api-status offline';
+                    document.getElementById('apiStatus').textContent = 'API Offline';
+                });
+
+            // Tải danh sách tài liệu
+            loadDocuments();
+
+            // Thêm sự kiện tìm kiếm và lọc
+            document.getElementById('searchInput').addEventListener('input', loadDocuments);
+            document.getElementById('filterType').addEventListener('change', loadDocuments);
+            document.getElementById('refreshBtn').addEventListener('click', loadDocuments);
+
+            // Cập nhật số lượng người dùng và chủ đề được chọn
+            ['userSelect', 'subjectSelect', 'updateUserSelect', 'updateSubjectSelect'].forEach(id => {
+                document.getElementById(id).addEventListener('change', () => {
+                    const count = document.querySelectorAll(`#${id} input[type="checkbox"]:checked`).length;
+                    const baseId = id.startsWith('update') ? id.replace('update', '') : id;
+                    document.getElementById(`${baseId === 'userSelect' || baseId === 'updateUserSelect' ? 'user' : 'subject'}Count`).textContent = `Đã chọn: ${count} ${baseId === 'userSelect' || baseId === 'updateUserSelect' ? 'người dùng' : 'chủ đề'}`;
+                });
+            });
+        });
+    </script>
+</body>
+
+</html>
