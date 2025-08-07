@@ -16,3 +16,7 @@ pdf2image
 opencv-python
 numpy
 pytesseract
+python-docx
+openpyxl
+unstructured[xlsx]
+PyMuPDF
