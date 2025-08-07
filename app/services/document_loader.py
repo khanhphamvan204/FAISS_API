@@ -258,11 +258,483 @@
 
 
 # app/services/document_loader.py
+# import os
+# import logging
+# import cv2
+# import numpy as np
+# import pytesseract
+# import fitz  # PyMuPDF
+# from pdf2image import convert_from_path
+# from PIL import Image
+# from langchain.docstore.document import Document
+# from langchain_community.document_loaders import (
+#     TextLoader,
+#     Docx2txtLoader,
+#     CSVLoader,
+#     UnstructuredExcelLoader
+# )
+
+# logger = logging.getLogger(__name__)
+
+# # Global variables for OCR
+# ocr_initialized = False
+
+# def init_tesseract():
+#     """Khởi tạo và kiểm tra Tesseract OCR"""
+#     global ocr_initialized
+    
+#     if ocr_initialized:
+#         return True
+    
+#     try:
+#         logger.info("Initializing Tesseract OCR...")
+        
+#         # Kiểm tra tesseract có sẵn không
+#         import subprocess
+#         try:
+#             result = subprocess.run(['tesseract', '--version'], 
+#                                   capture_output=True, text=True, timeout=10)
+#             if result.returncode == 0:
+#                 logger.info(f"Tesseract version: {result.stdout.split()[1]}")
+#             else:
+#                 logger.error("Tesseract not found in system PATH")
+#                 return False
+#         except subprocess.TimeoutExpired:
+#             logger.error("Tesseract version check timed out")
+#             return False
+#         except FileNotFoundError:
+#             logger.error("Tesseract executable not found")
+#             return False
+        
+#         # Kiểm tra các ngôn ngữ có sẵn
+#         try:
+#             result = subprocess.run(['tesseract', '--list-langs'], 
+#                                   capture_output=True, text=True, timeout=10)
+#             if result.returncode == 0:
+#                 available_langs = result.stdout.strip().split('\n')[1:]  # Skip header
+#                 logger.info(f"Available languages: {available_langs}")
+                
+#                 # Kiểm tra có tiếng Việt và tiếng Anh không
+#                 has_vie = 'vie' in available_langs
+#                 has_eng = 'eng' in available_langs
+                
+#                 if not has_vie and not has_eng:
+#                     logger.error("Neither Vietnamese nor English language support found")
+#                     return False
+                    
+#                 logger.info(f"Language support - Vietnamese: {has_vie}, English: {has_eng}")
+#             else:
+#                 logger.warning("Could not list available languages, proceeding with default")
+#         except subprocess.TimeoutExpired:
+#             logger.warning("Language list check timed out, proceeding with default")
+#         except Exception as e:
+#             logger.warning(f"Language check failed: {e}, proceeding with default")
+        
+#         # Test OCR với hình ảnh đơn giản
+#         try:
+#             test_img = Image.new('RGB', (200, 50), color='white')
+#             from PIL import ImageDraw
+#             draw = ImageDraw.Draw(test_img)
+#             draw.text((10, 10), "TEST", fill='black')
+            
+#             # Test với cấu hình cơ bản
+#             test_result = pytesseract.image_to_string(test_img, lang='eng')
+#             logger.info("OCR test successful")
+#         except Exception as e:
+#             logger.error(f"OCR test failed: {e}")
+#             return False
+        
+#         ocr_initialized = True
+#         logger.info("Tesseract OCR initialized successfully")
+#         return True
+        
+#     except Exception as e:
+#         logger.error(f"Failed to initialize Tesseract OCR: {str(e)}")
+#         return False
+
+# def is_probably_scanned(pdf_path, text_threshold=30, image_area_ratio=0.7):
+#     """Phân tích PDF để xác định có phải là file scan không"""
+#     results = []
+#     doc = None
+    
+#     try:
+#         if not os.path.exists(pdf_path):
+#             logger.error(f"PDF file not found: {pdf_path}")
+#             return results
+            
+#         doc = fitz.open(pdf_path)
+#         logger.info(f"Analyzing PDF structure: {pdf_path} ({len(doc)} pages)")
+
+#         for i, page in enumerate(doc):
+#             try:
+#                 text = page.get_text().strip()
+#                 image_list = page.get_images(full=True)
+#                 has_text = len(text) >= text_threshold
+
+#                 # Tính tỷ lệ ảnh trên trang
+#                 img_area_ratio = 0
+#                 page_area = page.rect.width * page.rect.height
+
+#                 if page_area > 0:  # Tránh chia cho 0
+#                     for img in image_list:
+#                         try:
+#                             xref = img[0]
+#                             pix = fitz.Pixmap(doc, xref)
+#                             if pix:
+#                                 img_width, img_height = pix.width, pix.height
+#                                 img_area_ratio += (img_width * img_height) / page_area
+#                                 pix = None  # Clean up
+#                         except Exception as e:
+#                             logger.warning(f"Error processing image on page {i+1}: {str(e)}")
+#                             continue
+
+#                 # Nếu text ngắn hoặc ảnh chiếm diện tích lớn → có thể là scan
+#                 is_scanned = (not has_text) or (img_area_ratio > image_area_ratio)
+#                 results.append({
+#                     "page": i+1,
+#                     "has_text": has_text,
+#                     "image_area_ratio": round(img_area_ratio, 2),
+#                     "is_probably_scan": is_scanned
+#                 })
+                
+#             except Exception as e:
+#                 logger.error(f"Error analyzing page {i+1}: {str(e)}")
+#                 # Add default result for failed page analysis
+#                 results.append({
+#                     "page": i+1,
+#                     "has_text": False,
+#                     "image_area_ratio": 0,
+#                     "is_probably_scan": True  # Conservative approach
+#                 })
+
+#     except Exception as e:
+#         logger.error(f"Error opening or analyzing PDF {pdf_path}: {str(e)}")
+#     finally:
+#         if doc:
+#             try:
+#                 doc.close()
+#             except:
+#                 pass
+    
+#     return results
+
+# def extract_text_from_pdf_native(pdf_path):
+#     """Trích xuất text trực tiếp từ PDF (không qua OCR)"""
+#     texts = []
+#     doc = None
+    
+#     try:
+#         if not os.path.exists(pdf_path):
+#             logger.error(f"PDF file not found: {pdf_path}")
+#             return texts
+            
+#         doc = fitz.open(pdf_path)
+#         logger.info(f"Extracting native text from {len(doc)} pages")
+        
+#         for page_num in range(len(doc)):
+#             try:
+#                 page = doc[page_num]
+#                 text = page.get_text()
+                
+#                 if text and text.strip():
+#                     texts.append(text.strip())
+#                     logger.info(f"Extracted native text from page {page_num + 1}")
+                    
+#             except Exception as e:
+#                 logger.error(f"Error extracting text from page {page_num + 1}: {str(e)}")
+#                 continue
+            
+#         logger.info(f"Successfully extracted native text from {len(texts)} pages")
+        
+#     except Exception as e:
+#         logger.error(f"Error opening PDF for text extraction {pdf_path}: {str(e)}")
+#     finally:
+#         if doc:
+#             try:
+#                 doc.close()
+#             except:
+#                 pass
+    
+#     return texts
+
+# def preprocess_image_for_ocr(image):
+#     """Tiền xử lý hình ảnh để cải thiện OCR"""
+#     try:
+#         # Convert PIL Image to numpy array
+#         img_array = np.array(image)
+        
+#         # Convert RGB to BGR for OpenCV
+#         if len(img_array.shape) == 3:
+#             img_cv = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
+#             gray = cv2.cvtColor(img_cv, cv2.COLOR_BGR2GRAY)
+#         else:
+#             gray = img_array
+        
+#         # Apply CLAHE (Contrast Limited Adaptive Histogram Equalization)
+#         clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+#         enhanced = clahe.apply(gray)
+        
+#         # Denoise
+#         denoised = cv2.medianBlur(enhanced, 3)
+        
+#         # Threshold
+#         _, thresh = cv2.threshold(denoised, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        
+#         return Image.fromarray(thresh)
+        
+#     except Exception as e:
+#         logger.warning(f"Image preprocessing failed: {str(e)}, using original image")
+#         return image
+
+# def extract_text_with_tesseract(image, page_num=1):
+#     """Trích xuất văn bản từ hình ảnh bằng Tesseract OCR"""
+#     if not init_tesseract():
+#         logger.error("Cannot initialize Tesseract OCR")
+#         return ""
+    
+#     try:
+#         # Preprocess image
+#         processed_img = preprocess_image_for_ocr(image)
+        
+#         # Kiểm tra ngôn ngữ có sẵn
+#         import subprocess
+#         available_langs = []
+#         try:
+#             result = subprocess.run(['tesseract', '--list-langs'], 
+#                                   capture_output=True, text=True, timeout=5)
+#             if result.returncode == 0:
+#                 available_langs = result.stdout.strip().split('\n')[1:]
+#         except:
+#             available_langs = ['eng']  # fallback
+        
+#         # Chọn ngôn ngữ ưu tiên
+#         if 'vie' in available_langs:
+#             selected_lang = 'vie+eng'  # Combine Vietnamese and English
+#         elif 'eng' in available_langs:
+#             selected_lang = 'eng'
+#         else:
+#             selected_lang = 'eng'  # Default fallback
+        
+#         # Try different PSM modes for better results
+#         psm_modes = [6, 4, 3, 1]  # Different page segmentation modes
+#         best_text = ""
+#         best_length = 0
+        
+#         for psm in psm_modes:
+#             try:
+#                 config = f'--psm {psm} -c preserve_interword_spaces=1'
+#                 text = pytesseract.image_to_string(processed_img, lang=selected_lang, config=config)
+                
+#                 # Choose the result with most content
+#                 if len(text.strip()) > best_length:
+#                     best_text = text
+#                     best_length = len(text.strip())
+                    
+#             except Exception as e:
+#                 logger.warning(f"OCR failed with PSM {psm}: {str(e)}")
+#                 continue
+        
+#         logger.info(f"OCR extracted {best_length} characters from page {page_num} using {selected_lang}")
+#         return best_text.strip()
+        
+#     except Exception as e:
+#         logger.error(f"OCR Error for page {page_num}: {str(e)}")
+#         return ""
+
+# def process_pdf_smart(file_path: str) -> list:
+#     """
+#     Xử lý file PDF thông minh: 
+#     - Phân tích cấu trúc để xác định cần OCR hay không
+#     - Sử dụng text extraction trực tiếp cho PDF thông thường
+#     - Chỉ sử dụng OCR cho PDF scan
+#     """
+#     texts = []
+#     doc = None
+    
+#     try:
+#         if not os.path.exists(file_path):
+#             logger.error(f"File not found: {file_path}")
+#             raise FileNotFoundError(f"File not found: {file_path}")
+        
+#         logger.info(f"Processing PDF: {file_path}")
+        
+#         # Phân tích cấu trúc PDF
+#         scan_analysis = is_probably_scanned(file_path)
+        
+#         if not scan_analysis:
+#             logger.error("Failed to analyze PDF structure")
+#             return texts
+        
+#         # Phân loại trang: scan vs native text
+#         scan_pages = []
+#         native_pages = []
+        
+#         for page_info in scan_analysis:
+#             if page_info["is_probably_scan"]:
+#                 scan_pages.append(page_info["page"])
+#             else:
+#                 native_pages.append(page_info["page"])
+        
+#         logger.info(f"PDF Analysis: {len(native_pages)} native text pages, {len(scan_pages)} scan pages")
+        
+#         # Xử lý native text pages
+#         if native_pages:
+#             try:
+#                 logger.info("Extracting native text from PDF...")
+#                 doc = fitz.open(file_path)
+                
+#                 for page_num in native_pages:
+#                     try:
+#                         page_index = page_num - 1  # Convert to 0-based index
+#                         if page_index < len(doc):
+#                             page = doc[page_index]
+#                             text = page.get_text().strip()
+#                             if text:
+#                                 texts.append(text)
+#                                 logger.info(f"Native text extracted from page {page_num}")
+#                     except Exception as e:
+#                         logger.warning(f"Error extracting native text from page {page_num}: {str(e)}")
+#                         continue
+                        
+#             except Exception as e:
+#                 logger.error(f"Error processing native text pages: {str(e)}")
+#             finally:
+#                 if doc:
+#                     try:
+#                         doc.close()
+#                         doc = None
+#                     except:
+#                         pass
+        
+#         # Xử lý scan pages với OCR
+#         if scan_pages:
+#             logger.info(f"Processing {len(scan_pages)} scan pages with OCR...")
+            
+#             try:
+#                 # Convert PDF to images (tất cả trang)
+#                 images = convert_from_path(file_path, dpi=300, fmt='PNG')
+#                 logger.info(f"Converted PDF to {len(images)} images")
+                
+#                 # Process only scan pages
+#                 for page_num in scan_pages:
+#                     try:
+#                         img_index = page_num - 1  # Convert to 0-based index
+#                         if img_index < len(images):
+#                             img = images[img_index]
+#                             logger.info(f"Processing scan page {page_num} with OCR")
+                            
+#                             # Extract text using OCR
+#                             text = extract_text_with_tesseract(img, page_num)
+                            
+#                             if text and text.strip():
+#                                 texts.append(text)
+#                                 logger.info(f"OCR text extracted from page {page_num}")
+#                             else:
+#                                 logger.warning(f"No text extracted from scan page {page_num}")
+#                         else:
+#                             logger.warning(f"Image index {img_index} out of range for page {page_num}")
+                        
+#                     except Exception as e:
+#                         logger.error(f"Error processing scan page {page_num}: {str(e)}")
+#                         continue
+                        
+#             except Exception as e:
+#                 logger.error(f"Failed to convert PDF to images: {str(e)}")
+#                 # Don't return here, we might have extracted some native text
+        
+#         logger.info(f"Successfully processed PDF: {len(texts)} pages with text extracted")
+        
+#     except FileNotFoundError:
+#         raise  # Re-raise file not found error
+#     except Exception as e:
+#         logger.error(f"PDF Processing Error for {file_path}: {str(e)}")
+#     finally:
+#         if doc:
+#             try:
+#                 doc.close()
+#             except:
+#                 pass
+    
+#     return texts
+
+# def load_new_documents(file_path: str, metadata) -> list:
+#     """Load documents from various file formats with smart PDF processing"""
+#     documents = []
+    
+#     try:
+#         if not os.path.exists(file_path):
+#             logger.error(f"File not found: {file_path}")
+#             return documents
+
+#         extension = file_path.lower().split('.')[-1]
+#         supported_extensions = {
+#             'pdf': 'pdf_smart',  # Smart PDF processing
+#             'txt': TextLoader,
+#             'docx': Docx2txtLoader,
+#             'csv': CSVLoader,
+#             'xlsx': UnstructuredExcelLoader,
+#             'xls': UnstructuredExcelLoader
+#         }
+
+#         if extension in supported_extensions:
+#             try:
+#                 logger.info(f"Loading document: {file_path} with extension {extension}")
+                
+#                 if extension == 'pdf':
+#                     try:
+#                         # Smart PDF processing
+#                         texts = process_pdf_smart(file_path)
+#                         metadata_dict = metadata.dict(by_alias=True) if hasattr(metadata, 'dict') else metadata
+                        
+#                         for text in texts:
+#                             try:
+#                                 if text and text.strip():
+#                                     documents.append(Document(page_content=text, metadata=metadata_dict))
+#                             except Exception as e:
+#                                 logger.warning(f"Error creating document from text: {str(e)}")
+#                                 continue
+                                
+#                     except Exception as e:
+#                         logger.error(f"Error processing PDF {file_path}: {str(e)}")
+                        
+#                 else:
+#                     try:
+#                         # Standard document loading
+#                         loader = supported_extensions[extension](file_path)
+#                         loaded_docs = loader.load()
+#                         metadata_dict = metadata.dict(by_alias=True) if hasattr(metadata, 'dict') else metadata
+                        
+#                         for doc in loaded_docs:
+#                             try:
+#                                 documents.append(Document(
+#                                     page_content=doc.page_content, 
+#                                     metadata=metadata_dict
+#                                 ))
+#                             except Exception as e:
+#                                 logger.warning(f"Error creating document from loaded doc: {str(e)}")
+#                                 continue
+                                
+#                     except Exception as e:
+#                         logger.error(f"Error loading document with standard loader: {str(e)}")
+                
+#                 logger.info(f"Successfully loaded {len(documents)} documents from {file_path}")
+                
+#             except Exception as e:
+#                 logger.error(f"Error processing file {file_path}: {str(e)}")
+#         else:
+#             logger.warning(f"Unsupported file extension: {extension} for file {file_path}")
+            
+#     except Exception as e:
+#         logger.error(f"Unexpected error in load_new_documents for {file_path}: {str(e)}")
+    
+#     return documents
+
 import os
 import logging
 import cv2
 import numpy as np
 import pytesseract
+import fitz  # PyMuPDF
 from pdf2image import convert_from_path
 from PIL import Image
 from langchain.docstore.document import Document
@@ -287,9 +759,6 @@ def init_tesseract():
     
     try:
         logger.info("Initializing Tesseract OCR...")
-        
-        # Trong Docker Linux, tesseract được cài đặt system-wide
-        # Không cần set đường dẫn cụ thể
         
         # Kiểm tra tesseract có sẵn không
         import subprocess
@@ -354,10 +823,111 @@ def init_tesseract():
         logger.error(f"Failed to initialize Tesseract OCR: {str(e)}")
         return False
 
+def is_probably_scanned_first_page(pdf_path, text_threshold=30, image_area_ratio=0.7):
+    """Phân tích trang đầu tiên của PDF để xác định có phải là file scan không"""
+    result = {"page": 1, "has_text": False, "image_area_ratio": 0, "is_probably_scan": True}
+    doc = None
+    
+    try:
+        if not os.path.exists(pdf_path):
+            logger.error(f"PDF file not found: {pdf_path}")
+            return result
+            
+        doc = fitz.open(pdf_path)
+        if len(doc) == 0:
+            logger.error("PDF is empty")
+            return result
+            
+        logger.info(f"Analyzing first page of PDF: {pdf_path}")
+        page = doc[0]  # Chỉ kiểm tra trang đầu tiên
+        
+        try:
+            text = page.get_text().strip()
+            image_list = page.get_images(full=True)
+            has_text = len(text) >= text_threshold
+
+            # Tính tỷ lệ ảnh trên trang
+            img_area_ratio = 0
+            page_area = page.rect.width * page.rect.height
+
+            if page_area > 0:  # Tránh chia cho 0
+                for img in image_list:
+                    try:
+                        xref = img[0]
+                        pix = fitz.Pixmap(doc, xref)
+                        if pix:
+                            img_width, img_height = pix.width, pix.height
+                            img_area_ratio += (img_width * img_height) / page_area
+                            pix = None  # Clean up
+                    except Exception as e:
+                        logger.warning(f"Error processing image on page 1: {str(e)}")
+                        continue
+
+            # Nếu text ngắn hoặc ảnh chiếm diện tích lớn → có thể là scan
+            is_scanned = (not has_text) or (img_area_ratio > image_area_ratio)
+            result = {
+                "page": 1,
+                "has_text": has_text,
+                "image_area_ratio": round(img_area_ratio, 2),
+                "is_probably_scan": is_scanned
+            }
+                
+        except Exception as e:
+            logger.error(f"Error analyzing page 1: {str(e)}")
+            # Mặc định coi là scan nếu phân tích thất bại
+
+    except Exception as e:
+        logger.error(f"Error opening or analyzing PDF {pdf_path}: {str(e)}")
+    finally:
+        if doc:
+            try:
+                doc.close()
+            except:
+                pass
+    
+    return result
+
+def extract_text_from_pdf_native(pdf_path):
+    """Trích xuất text trực tiếp từ PDF (không qua OCR)"""
+    texts = []
+    doc = None
+    
+    try:
+        if not os.path.exists(pdf_path):
+            logger.error(f"PDF file not found: {pdf_path}")
+            return texts
+            
+        doc = fitz.open(pdf_path)
+        logger.info(f"Extracting native text from {len(doc)} pages")
+        
+        for page_num in range(len(doc)):
+            try:
+                page = doc[page_num]
+                text = page.get_text()
+                
+                if text and text.strip():
+                    texts.append(text.strip())
+                    logger.info(f"Extracted native text from page {page_num + 1}")
+                    
+            except Exception as e:
+                logger.error(f"Error extracting text from page {page_num + 1}: {str(e)}")
+                continue
+            
+        logger.info(f"Successfully extracted native text from {len(texts)} pages")
+        
+    except Exception as e:
+        logger.error(f"Error opening PDF for text extraction {pdf_path}: {str(e)}")
+    finally:
+        if doc:
+            try:
+                doc.close()
+            except:
+                pass
+    
+    return texts
+
 def preprocess_image_for_ocr(image):
-    """
-    Tiền xử lý hình ảnh để cải thiện OCR
-    """
+    """Tiền xử lý hình ảnh để cải thiện OCR"""
     try:
         # Convert PIL Image to numpy array
         img_array = np.array(image)
@@ -440,9 +1010,13 @@ def extract_text_with_tesseract(image, page_num=1):
         logger.error(f"OCR Error for page {page_num}: {str(e)}")
         return ""
 
-def process_pdf(file_path: str) -> list:
-    """Xử lý file PDF, trích xuất văn bản bằng OCR."""
+def process_pdf_smart(file_path: str) -> list:
+    """
+    Xử lý file PDF thông minh:
+    - Kiểm tra trang đầu tiên để quyết định phương pháp xử lý (text hoặc OCR) cho toàn bộ file
+    """
     texts = []
+    doc = None
     
     try:
         if not os.path.exists(file_path):
@@ -451,83 +1025,125 @@ def process_pdf(file_path: str) -> list:
         
         logger.info(f"Processing PDF: {file_path}")
         
-        # Convert PDF to images
-        try:
-            images = convert_from_path(file_path, dpi=300, fmt='PNG')
-            logger.info(f"Converted PDF to {len(images)} images")
-        except Exception as e:
-            logger.error(f"Failed to convert PDF to images: {str(e)}")
+        # Phân tích trang đầu tiên
+        first_page_analysis = is_probably_scanned_first_page(file_path)
+        
+        if not first_page_analysis:
+            logger.error("Failed to analyze first page")
             return texts
         
-        # Process each page
-        for i, img in enumerate(images):
-            page_num = i + 1
-            logger.info(f"Processing page {page_num}/{len(images)}")
-            
-            # Extract text using OCR
-            text = extract_text_with_tesseract(img, page_num)
-            
-            if text and text.strip():
-                texts.append(text)
-                logger.info(f"Successfully extracted text from page {page_num}")
-            else:
-                logger.warning(f"No text extracted from page {page_num}")
+        is_scanned = first_page_analysis["is_probably_scan"]
+        logger.info(f"First page analysis: {'scanned' if is_scanned else 'native text'}")
         
-        logger.info(f"Extracted text from {len(texts)} pages of {file_path}")
+        if not is_scanned:
+            # Trang đầu tiên là text -> trích xuất văn bản gốc cho toàn bộ file
+            logger.info("Processing entire PDF as native text...")
+            texts = extract_text_from_pdf_native(file_path)
+        else:
+            # Trang đầu tiên là scan -> áp dụng OCR cho toàn bộ file
+            logger.info("Processing entire PDF with OCR...")
+            try:
+                images = convert_from_path(file_path, dpi=300, fmt='PNG')
+                logger.info(f"Converted PDF to {len(images)} images")
+                
+                for page_num, img in enumerate(images, 1):
+                    try:
+                        logger.info(f"Processing page {page_num} with OCR")
+                        text = extract_text_with_tesseract(img, page_num)
+                        if text and text.strip():
+                            texts.append(text)
+                            logger.info(f"OCR text extracted from page {page_num}")
+                        else:
+                            logger.warning(f"No text extracted from page {page_num}")
+                    except Exception as e:
+                        logger.error(f"Error processing page {page_num}: {str(e)}")
+                        continue
+            except Exception as e:
+                logger.error(f"Failed to convert PDF to images: {str(e)}")
         
+        logger.info(f"Successfully processed PDF: {len(texts)} pages with text extracted")
+        
+    except FileNotFoundError:
+        raise
     except Exception as e:
         logger.error(f"PDF Processing Error for {file_path}: {str(e)}")
+    finally:
+        if doc:
+            try:
+                doc.close()
+            except:
+                pass
     
     return texts
 
 def load_new_documents(file_path: str, metadata) -> list:
-    """Load documents from various file formats"""
+    """Load documents from various file formats with smart PDF processing"""
     documents = []
     
-    if not os.path.exists(file_path):
-        logger.error(f"File not found: {file_path}")
-        return documents
+    try:
+        if not os.path.exists(file_path):
+            logger.error(f"File not found: {file_path}")
+            return documents
 
-    extension = file_path.lower().split('.')[-1]
-    supported_extensions = {
-        'pdf': 'pdf_ocr',  # Special handling for PDF with OCR
-        'txt': TextLoader,
-        'docx': Docx2txtLoader,
-        'csv': CSVLoader,
-        'xlsx': UnstructuredExcelLoader,
-        'xls': UnstructuredExcelLoader
-    }
+        extension = file_path.lower().split('.')[-1]
+        supported_extensions = {
+            'pdf': 'pdf_smart',  # Smart PDF processing
+            'txt': TextLoader,
+            'docx': Docx2txtLoader,
+            'csv': CSVLoader,
+            'xlsx': UnstructuredExcelLoader,
+            'xls': UnstructuredExcelLoader
+        }
 
-    if extension in supported_extensions:
-        try:
-            logger.info(f"Loading document: {file_path} with extension {extension}")
-            
-            if extension == 'pdf':
-                # Special PDF processing with OCR
-                texts = process_pdf(file_path)
-                metadata_dict = metadata.dict(by_alias=True) if hasattr(metadata, 'dict') else metadata
+        if extension in supported_extensions:
+            try:
+                logger.info(f"Loading document: {file_path} with extension {extension}")
                 
-                for text in texts:
-                    if text and text.strip():
-                        documents.append(Document(page_content=text, metadata=metadata_dict))
+                if extension == 'pdf':
+                    try:
+                        # Smart PDF processing
+                        texts = process_pdf_smart(file_path)
+                        metadata_dict = metadata.dict(by_alias=True) if hasattr(metadata, 'dict') else metadata
                         
-            else:
-                # Standard document loading
-                loader = supported_extensions[extension](file_path)
-                loaded_docs = loader.load()
-                metadata_dict = metadata.dict(by_alias=True) if hasattr(metadata, 'dict') else metadata
+                        for text in texts:
+                            try:
+                                if text and text.strip():
+                                    documents.append(Document(page_content=text, metadata=metadata_dict))
+                            except Exception as e:
+                                logger.warning(f"Error creating document from text: {str(e)}")
+                                continue
+                                
+                    except Exception as e:
+                        logger.error(f"Error processing PDF {file_path}: {str(e)}")
+                        
+                else:
+                    try:
+                        # Standard document loading
+                        loader = supported_extensions[extension](file_path)
+                        loaded_docs = loader.load()
+                        metadata_dict = metadata.dict(by_alias=True) if hasattr(metadata, 'dict') else metadata
+                        
+                        for doc in loaded_docs:
+                            try:
+                                documents.append(Document(
+                                    page_content=doc.page_content, 
+                                    metadata=metadata_dict
+                                ))
+                            except Exception as e:
+                                logger.warning(f"Error creating document from loaded doc: {str(e)}")
+                                continue
+                                
+                    except Exception as e:
+                        logger.error(f"Error loading document with standard loader: {str(e)}")
                 
-                for doc in loaded_docs:
-                    documents.append(Document(
-                        page_content=doc.page_content, 
-                        metadata=metadata_dict
-                    ))
+                logger.info(f"Successfully loaded {len(documents)} documents from {file_path}")
+                
+            except Exception as e:
+                logger.error(f"Error processing file {file_path}: {str(e)}")
+        else:
+            logger.warning(f"Unsupported file extension: {extension} for file {file_path}")
             
-            logger.info(f"Loaded {len(documents)} documents from {file_path}")
-            
-        except Exception as e:
-            logger.error(f"Error loading {file_path}: {str(e)}")
-    else:
-        logger.warning(f"Unsupported file extension: {extension}")
+    except Exception as e:
+        logger.error(f"Unexpected error in load_new_documents for {file_path}: {str(e)}")
     
     return documents
