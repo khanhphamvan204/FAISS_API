@@ -12,5 +12,7 @@ python-multipart
 docx2txt
 Pillow
 faiss-cpu
-paddlepaddle
-paddleocr
+pdf2image
+opencv-python
+numpy
+pytesseract
