@@ -55,14 +55,31 @@ async def add_vector_document(
     role_subject: str = Form(default="[]")
 ):
     try:
+        # Validate file_type
         valid_file_types = list(Config.FILE_TYPE_PATHS.keys())
         if file_type not in valid_file_types:
             raise HTTPException(status_code=400, detail=f"Invalid file_type. Must be one of: {valid_file_types}")
         
+        file_name = file.filename
+        
+        # Check for duplicate filename in the same file_type
+        file_path, vector_db_path = get_file_paths(file_type, file_name)  # Đúng thứ tự tham số
+        if os.path.exists(file_path):
+            raise HTTPException(
+            status_code=409, 
+            detail=f"File already exists at path: {file_path}"
+        )
+        
+        # Validate file extension
+        supported_extensions = {'.pdf', '.txt', '.docx', '.csv', '.xlsx', '.xls'}
+        file_extension = os.path.splitext(file_name.lower())[1]
+        if file_extension not in supported_extensions:
+            raise HTTPException(status_code=400, detail=f"File format {file_extension} not supported")
+        
+        # Generate unique ID and metadata
         generated_id = str(uuid.uuid4())
         vietnam_tz = timezone(timedelta(hours=7))
         created_at = datetime.now(vietnam_tz).isoformat()
-        file_name = file.filename
         
         file_path, vector_db_path = get_file_paths(file_type, file_name)
         file_url = file_path
@@ -82,27 +99,49 @@ async def add_vector_document(
             createdAt=created_at
         )
         
-        supported_extensions = {'.pdf', '.txt', '.docx', '.csv', '.xlsx', '.xls'}
-        file_extension = os.path.splitext(file_name.lower())[1]
-        if file_extension not in supported_extensions:
-            raise HTTPException(status_code=400, detail=f"File format {file_extension} not supported")
+        # Check if file already exists on disk
+        if os.path.exists(file_path):
+            raise HTTPException(
+                status_code=409, 
+                detail=f"File already exists at path: {file_path}"
+            )
         
+        # Save file to disk
         os.makedirs(os.path.dirname(file_path), exist_ok=True)
         with open(file_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
         
-        save_metadata(metadata)
-        add_to_embedding(file_path, metadata)
+        # Save metadata and add to embedding
+        try:
+            save_metadata(metadata)
+            add_to_embedding(file_path, metadata)
+        except Exception as embed_error:
+            # Clean up file if metadata/embedding fails
+            if os.path.exists(file_path):
+                os.remove(file_path)
+            raise HTTPException(
+                status_code=500, 
+                detail=f"Failed to process embeddings: {str(embed_error)}"
+            )
         
         return {
             "message": "Vector added successfully",
             "_id": generated_id,
+            "filename": file_name,
             "file_type": file_type,
             "file_path": file_path,
-            "vector_db_path": vector_db_path
+            "vector_db_path": vector_db_path,
+            "status": "created"
         }
+        
+    except HTTPException:
+        # Re-raise HTTP exceptions as-is
+        raise
+    except json.JSONDecodeError as json_error:
+        logger.error(f"JSON decode error in role fields: {str(json_error)}")
+        raise HTTPException(status_code=400, detail=f"Invalid JSON in role fields: {str(json_error)}")
     except Exception as e:
-        logger.error(f"Error processing file: {str(e)}")
+        logger.error(f"Unexpected error processing file: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error processing file: {str(e)}")
 
 @router.delete("/{doc_id}", response_model=dict)
@@ -192,6 +231,16 @@ async def update_vector_document(
         current_file_type = current_doc.get('file_type')
         current_filename = current_doc.get('filename')
         current_file_path = current_doc.get('url')
+        
+        # Check for duplicate filename if filename is being changed
+        if filename and filename != current_filename:
+            target_file_type = file_type if file_type else current_file_type
+            target_file_path, _ = get_file_paths(target_file_type, filename)
+            if os.path.exists(target_file_path):
+                raise HTTPException(
+                status_code=409,
+                detail=f"File '{filename}' already exists in {target_file_type} category at path: {target_file_path}"
+            )
         
         if filename:
             supported_extensions = {'.pdf', '.txt', '.docx', '.csv', '.xlsx', '.xls'}
