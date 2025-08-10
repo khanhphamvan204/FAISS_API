@@ -5,6 +5,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    container_name: faiss-api-main
     ports:
       - "8000:8000"
     volumes:
@@ -12,13 +13,9 @@ services:
       - ./.env:/app/.env
     environment:
       - PYTHONUNBUFFERED=1
-      - MONGO_URI=mongodb://admin:123@localhost:27017/faiss_db?authSource=admin
+      - MONGO_URI=mongodb://admin:123@host.docker.internal::27017/faiss_db?authSource=admin
     networks:
       - app-network
-
-volumes:
-  mongo-data:
-
 
 networks:
   app-network:
