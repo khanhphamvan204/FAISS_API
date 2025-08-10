@@ -12,9 +12,7 @@ services:
       - ./.env:/app/.env
     environment:
       - PYTHONUNBUFFERED=1
-      - MONGO_URI=mongodb://localhost:27017/faiss_db
-    depends_on:
-      - mongo
+      - MONGO_URI=mongodb://admin:123@localhost:27017/faiss_db?authSource=admin
     networks:
       - app-network
 
