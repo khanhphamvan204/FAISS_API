@@ -12,18 +12,9 @@ services:
       - ./.env:/app/.env
     environment:
       - PYTHONUNBUFFERED=1
-      - MONGO_URI=mongodb://mongo:27017/faiss_db
+      - MONGO_URI=mongodb://localhost:27017/faiss_db
     depends_on:
       - mongo
-    networks:
-      - app-network
-
-  mongo:
-    image: mongo:6.0
-    ports:
-      - "27017:27017"
-    volumes:
-      - mongo-data:/data/db
     networks:
       - app-network
 
