@@ -14,6 +14,7 @@ import logging
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain_community.vectorstores import FAISS
 import time
+from sentence_transformers import SentenceTransformer
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -355,10 +356,11 @@ async def search_vector_documents(request: VectorSearchRequest):
     try:
         valid_file_types = list(Config.FILE_TYPE_PATHS.keys())
         if request.file_type not in valid_file_types:
-            raise HTTPException(status_code=400, detail=f"Invalid file_type")
+            raise HTTPException(status_code=400, detail=f"Invalid file_type. Valid types: {valid_file_types}")
         
         _, vector_db_path = get_file_paths(request.file_type, "dummy_filename")
         
+        # Check if vector DB exists
         if not (os.path.exists(f"{vector_db_path}/index.faiss") and os.path.exists(f"{vector_db_path}/index.pkl")):
             return VectorSearchResponse(
                 query=request.query,
@@ -367,22 +369,60 @@ async def search_vector_documents(request: VectorSearchRequest):
                 k_requested=request.k,
                 file_type=request.file_type,
                 similarity_threshold=request.similarity_threshold,
-                search_time_ms=0.0
+                search_time_ms=round((time.time() - start_time) * 1000, 2)
             )
         
-        embedding_model = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
-        db = FAISS.load_local(vector_db_path, embedding_model, allow_dangerous_deserialization=True)
+        # Use consistent embedding model - SAME AS embedding_service.py
+        try:
+            from app.services.embedding_service import get_embedding_model
+            embedding_model = get_embedding_model()
+            
+            logger.info(f"Loading FAISS index from: {vector_db_path}")
+            db = FAISS.load_local(vector_db_path, embedding_model, allow_dangerous_deserialization=True)
+            
+        except Exception as e:
+            logger.error(f"Failed to load vector DB: {str(e)}")
+            logger.error(f"This might be due to incompatible embedding models.")
+            logger.error(f"Try deleting the old index and re-creating it.")
+            raise HTTPException(status_code=500, detail=f"Failed to load vector database: {str(e)}")
         
-        retriever = db.as_retriever(
-            search_type="similarity_score_threshold",
-            search_kwargs={"score_threshold": request.similarity_threshold, "k": request.k}
-        )
-        
-        search_docs = retriever.get_relevant_documents(request.query)
-        results = [
-            SearchResult(content=doc.page_content, metadata={**doc.metadata, "similarity_score": doc.metadata.get('score', 1.0)})
-            for doc in search_docs
-        ]
+        # Perform similarity search with scores
+        try:
+            logger.info(f"Searching for query: '{request.query}'")
+            docs_with_scores = db.similarity_search_with_score(
+                request.query, 
+                k=request.k  # Get more results first
+            )
+            
+            logger.info(f"Found {len(docs_with_scores)} raw results")
+            
+            # IMPORTANT: FAISS L2 distance - lower score = more similar
+            # Filter by similarity threshold (lower threshold = stricter)
+            filtered_docs = [
+                (doc, score) for doc, score in docs_with_scores 
+                if score >= request.similarity_threshold  
+            ]
+            
+            logger.info(f"After filtering by threshold {request.similarity_threshold}: {len(filtered_docs)} results")
+            
+            # Take only top k results
+            top_results = filtered_docs[:request.k]
+            
+            results = [
+                SearchResult(
+                    content=doc.page_content, 
+                    metadata={**doc.metadata, "similarity_score": float(score)}
+                )
+                for doc, score in top_results
+            ]
+            
+            logger.info(f"Returning {len(results)} final results")
+            
+        except Exception as e:
+            logger.error(f"Search execution failed: {str(e)}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            raise HTTPException(status_code=500, detail=f"Search execution failed: {str(e)}")
         
         search_time_ms = round((time.time() - start_time) * 1000, 2)
         return VectorSearchResponse(
@@ -394,6 +434,11 @@ async def search_vector_documents(request: VectorSearchRequest):
             similarity_threshold=request.similarity_threshold,
             search_time_ms=search_time_ms
         )
+        
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Error in search: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Error in search: {str(e)}")
+        logger.error(f"Unexpected error in search: {str(e)}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail="Internal server error")

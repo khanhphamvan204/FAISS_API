@@ -1,6 +1,0 @@
-docker ps
-docker exec -it faiss_api-mongo-1 mongosh
-show dbs
-use faiss_db
-show collections
-db.<collection_name>.find().pretty()
