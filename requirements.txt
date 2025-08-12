@@ -19,6 +19,5 @@ pytesseract
 python-docx
 openpyxl
 unstructured[xlsx]
-PyMuPDF
 sentence-transformers
 langchain_experimental

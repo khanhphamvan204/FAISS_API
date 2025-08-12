@@ -5,29 +5,19 @@ import gc
 from typing import List
 from langchain.docstore.document import Document
 from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_experimental.text_splitter import SemanticChunker
 from langchain_community.vectorstores import FAISS
 from app.config import Config
 from app.services.file_service import get_file_paths
 from app.services.metadata_service import find_document_info
 from .document_loader import load_new_documents
 from sentence_transformers import SentenceTransformer
-import numpy as np
-
-logger = logging.getLogger(__name__)
-from typing import List
-from sentence_transformers import SentenceTransformer
-import gc
-import os
-import logging
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_community.vectorstores import FAISS
-from langchain_experimental.text_splitter import SemanticChunker
 
 logger = logging.getLogger(__name__)
 
 class SentenceTransformerEmbeddings:
     """
-    Wrapper để tương thích với LangChain FAISS
+    Wrapper để tương thích với LangChain FAISS và SemanticChunker
     """
     _model = None
     
@@ -80,66 +70,35 @@ def get_embedding_model():
     """Get consistent embedding model"""
     return SentenceTransformerEmbeddings()
 
-def get_semantic_text_splitter(file_type: str = None, embedding_model=None):
-    """
-    Tạo SemanticChunker từ LangChain cho từng loại file
-    Chỉ hỗ trợ: .pdf, .txt, .docx, .csv, .xlsx, .xls
-    """
-    if embedding_model is None:
-        embedding_model = get_embedding_model()
-    
+def get_text_splitter(use_semantic: bool = True):
+    """Get text splitter - semantic or traditional"""
     try:
-        if file_type and file_type.lower() in ['pdf', 'docx']:
-            # PDF và Word documents: breakpoint threshold thấp hơn để preserve context
+        if use_semantic:
+            logger.info("Using SemanticChunker for text splitting")
+            embedding_model = get_embedding_model()
             return SemanticChunker(
                 embeddings=embedding_model,
-                breakpoint_threshold_type="percentile",
-                breakpoint_threshold_amount=85,  # Ít break points hơn
-                number_of_chunks=None,
-                sentence_split_regex=r'[.!?]\s+',
-                add_start_index=True
-            )
-        elif file_type and file_type.lower() == 'txt':
-            # Text files: balanced approach
-            return SemanticChunker(
-                embeddings=embedding_model,
-                breakpoint_threshold_type="percentile", 
-                breakpoint_threshold_amount=90,  # Balanced
-                number_of_chunks=None,
-                sentence_split_regex=r'[.!?]\s+',
-                add_start_index=True
-            )
-        elif file_type and file_type.lower() in ['csv', 'xlsx', 'xls']:
-            # Excel/CSV files: ít break points để preserve data structure
-            return SemanticChunker(
-                embeddings=embedding_model,
-                breakpoint_threshold_type="percentile",
-                breakpoint_threshold_amount=80,  # Ít break points nhất
-                number_of_chunks=None, 
-                sentence_split_regex=r'[\n\r]+',  # Split by lines for structured data
-                add_start_index=True
+                breakpoint_threshold_type="percentile",  # hoặc "standard_deviation"
+                breakpoint_threshold_amount=95,  # top 5% differences become breakpoints
+                number_of_chunks=None,  # không giới hạn số chunk
+                buffer_size=1,  # số câu buffer xung quanh breakpoint
             )
         else:
-            # Default
-            return SemanticChunker(
-                embeddings=embedding_model,
-                breakpoint_threshold_type="percentile",
-                breakpoint_threshold_amount=90,
-                number_of_chunks=None,
-                add_start_index=True
+            logger.info("Using RecursiveCharacterTextSplitter for text splitting")
+            return RecursiveCharacterTextSplitter(
+                chunk_size=2000, 
+                chunk_overlap=200
             )
-    
     except Exception as e:
-        logger.error(f"Error creating SemanticChunker: {e}")
+        logger.warning(f"Failed to create SemanticChunker: {e}")
         logger.info("Falling back to RecursiveCharacterTextSplitter")
-        # Fallback to regular text splitter
         return RecursiveCharacterTextSplitter(
-            chunk_size=2000,
+            chunk_size=2000, 
             chunk_overlap=200
         )
 
-def add_to_embedding(file_path: str, metadata):
-    """Add documents to vector database with semantic chunking"""
+def add_to_embedding(file_path: str, metadata, use_semantic_chunking: bool = True):
+    """Add documents to vector database"""
     try:
         logger.info(f"Starting embedding process for: {file_path}")
         
@@ -149,38 +108,28 @@ def add_to_embedding(file_path: str, metadata):
             logger.warning(f"No documents loaded from {file_path}")
             return False
 
-        # Get embedding model
-        embedding_model = get_embedding_model()
+        # Split into chunks with semantic or traditional splitter
+        text_splitter = get_text_splitter(use_semantic=use_semantic_chunking)
         
-        # Lấy file_type từ metadata để chọn text splitter phù hợp
-        file_type = getattr(metadata, 'file_type', None)
-        
-        # Sử dụng SemanticChunker từ LangChain
-        text_splitter = get_semantic_text_splitter(file_type, embedding_model)
-        
-        # Split documents
         try:
             chunks = text_splitter.split_documents(documents)
-            logger.info(f"Successfully created {len(chunks)} semantic chunks")
+            logger.info(f"Successfully created {len(chunks)} chunks using {'semantic' if use_semantic_chunking else 'traditional'} chunking")
         except Exception as e:
-            logger.error(f"Error in semantic chunking: {e}")
-            logger.info("Falling back to RecursiveCharacterTextSplitter")
-            # Fallback to regular chunking
-            fallback_splitter = RecursiveCharacterTextSplitter(
-                chunk_size=2000, 
-                chunk_overlap=200
-            )
-            chunks = fallback_splitter.split_documents(documents)
-            logger.info(f"Created {len(chunks)} chunks with fallback method")
+            if use_semantic_chunking:
+                logger.warning(f"Semantic chunking failed: {e}. Falling back to traditional chunking")
+                text_splitter = get_text_splitter(use_semantic=False)
+                chunks = text_splitter.split_documents(documents)
+                logger.info(f"Created {len(chunks)} chunks using fallback traditional chunking")
+            else:
+                raise e
         
         if not chunks:
             logger.warning(f"No chunks created from {file_path}")
             return False
         
-        logger.info(f"Created {len(chunks)} chunks from document")
-        
-        # Get paths
+        # Get paths and embedding model
         _, vector_db_path = get_file_paths(metadata.file_type, metadata.filename)
+        embedding_model = get_embedding_model()
         
         # Ensure directory exists
         os.makedirs(vector_db_path, exist_ok=True)
@@ -275,7 +224,7 @@ def delete_from_faiss_index(vector_db_path: str, doc_id: str) -> bool:
         logger.error(f"Error deleting from FAISS index: {str(e)}")
         return False
 
-def update_document_metadata_in_vector_store(doc_id: str, old_metadata: dict, new_metadata) -> bool:
+def update_document_metadata_in_vector_store(doc_id: str, old_metadata: dict, new_metadata, use_semantic_chunking: bool = True) -> bool:
     """Update document by re-embedding"""
     try:
         old_file_type = old_metadata.get('file_type')
@@ -291,7 +240,7 @@ def update_document_metadata_in_vector_store(doc_id: str, old_metadata: dict, ne
         # Re-embed with new metadata
         file_path = new_metadata.url
         if os.path.exists(file_path):
-            return add_to_embedding(file_path, new_metadata)
+            return add_to_embedding(file_path, new_metadata, use_semantic_chunking)
         else:
             logger.error(f"File not found for re-embedding: {file_path}")
             return False
@@ -343,19 +292,19 @@ def update_metadata_only(doc_id: str, new_metadata) -> bool:
         logger.error(f"Error updating metadata only: {str(e)}")
         return False
 
-def smart_metadata_update(doc_id: str, old_metadata: dict, new_metadata, force_re_embed: bool = False) -> bool:
+def smart_metadata_update(doc_id: str, old_metadata: dict, new_metadata, force_re_embed: bool = False, use_semantic_chunking: bool = True) -> bool:
     """Smart metadata update with fallback logic"""
     try:
         file_type_changed = old_metadata.get('file_type') != new_metadata.file_type
         filename_changed = old_metadata.get('filename') != new_metadata.filename
         
         if file_type_changed or filename_changed or force_re_embed:
-            return update_document_metadata_in_vector_store(doc_id, old_metadata, new_metadata)
+            return update_document_metadata_in_vector_store(doc_id, old_metadata, new_metadata, use_semantic_chunking)
         else:
             success = update_metadata_only(doc_id, new_metadata)
             if not success:
                 logger.info("Metadata-only update failed, attempting re-embedding")
-                return update_document_metadata_in_vector_store(doc_id, old_metadata, new_metadata)
+                return update_document_metadata_in_vector_store(doc_id, old_metadata, new_metadata, use_semantic_chunking)
             return success
             
     except Exception as e:
