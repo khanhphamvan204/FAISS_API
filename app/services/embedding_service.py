@@ -11,64 +11,43 @@ from app.config import Config
 from app.services.file_service import get_file_paths
 from app.services.metadata_service import find_document_info
 from .document_loader import load_new_documents
-from sentence_transformers import SentenceTransformer
+
+# Lựa chọn 1: HuggingFace Embeddings (nhẹ nhất)
+from langchain_community.embeddings import HuggingFaceEmbeddings
+
+# Lựa chọn 2: OpenAI Embeddings (cần API key)
+# from langchain_community.embeddings import OpenAIEmbeddings
+
+# Lựa chọn 3: Ollama Embeddings (local, nhẹ)
+# from langchain_community.embeddings import OllamaEmbeddings
 
 logger = logging.getLogger(__name__)
 
-class SentenceTransformerEmbeddings:
-    """
-    Wrapper để tương thích với LangChain FAISS và SemanticChunker
-    """
-    _model = None
-    
-    def __init__(self, model_name: str = 'paraphrase-multilingual-MiniLM-L12-v2'):
-        if SentenceTransformerEmbeddings._model is None:
-            SentenceTransformerEmbeddings._model = SentenceTransformer(model_name)
-        self.model = SentenceTransformerEmbeddings._model
-    
-    def __call__(self, text: str) -> List[float]:
-        """Make the class callable - required by FAISS"""
-        return self.embed_query(text)
-    
-    def embed_documents(self, texts: List[str]) -> List[List[float]]:
-        """Embed multiple documents"""
-        try:
-            # Process in small batches to avoid memory issues
-            batch_size = 8
-            all_embeddings = []
-            
-            for i in range(0, len(texts), batch_size):
-                batch = texts[i:i + batch_size]
-                embeddings = self.model.encode(
-                    batch,
-                    convert_to_tensor=False,
-                    show_progress_bar=False,
-                    batch_size=4
-                )
-                all_embeddings.extend(embeddings.tolist())
-                
-                # Clear memory after each batch
-                gc.collect()
-            
-            logger.info(f"Successfully embedded {len(texts)} documents")
-            return all_embeddings
-            
-        except Exception as e:
-            logger.error(f"Error in embed_documents: {e}")
-            raise
-    
-    def embed_query(self, text: str) -> List[float]:
-        """Embed single query"""
-        try:
-            embedding = self.model.encode([text], convert_to_tensor=False)
-            return embedding[0].tolist()
-        except Exception as e:
-            logger.error(f"Error in embed_query: {e}")
-            raise
-
 def get_embedding_model():
-    """Get consistent embedding model"""
-    return SentenceTransformerEmbeddings()
+    """Get consistent embedding model - multiple options"""
+    
+    # Option 1: HuggingFace Embeddings (nhẹ nhất, không cần GPU)
+    return HuggingFaceEmbeddings(
+        model_name="paraphrase-multilingual-MiniLM-L12-v2",
+        model_kwargs={'device': 'cpu'}, 
+        encode_kwargs={'normalize_embeddings': True}
+    )
+    
+    # Option 2: OpenAI Embeddings (nếu có API key)
+    # return OpenAIEmbeddings(
+    #     model="text-embedding-3-small",  # Nhẹ và rẻ
+    #     openai_api_key=os.getenv("OPENAI_API_KEY")
+    # )
+    
+    # Option 3: Ollama Embeddings (local, rất nhẹ)
+    # return OllamaEmbeddings(
+    #     model="nomic-embed-text:latest",
+    #     base_url="http://localhost:11434"
+    # )
+    
+    # Option 4: Fake Embeddings (để test, không dùng production)
+    # from langchain_community.embeddings import FakeEmbeddings
+    # return FakeEmbeddings(size=384)
 
 def get_text_splitter(use_semantic: bool = True):
     """Get text splitter - semantic or traditional"""
@@ -78,10 +57,10 @@ def get_text_splitter(use_semantic: bool = True):
             embedding_model = get_embedding_model()
             return SemanticChunker(
                 embeddings=embedding_model,
-                breakpoint_threshold_type="percentile",  # hoặc "standard_deviation"
-                breakpoint_threshold_amount=95,  # top 5% differences become breakpoints
-                number_of_chunks=None,  # không giới hạn số chunk
-                buffer_size=1,  # số câu buffer xung quanh breakpoint
+                breakpoint_threshold_type="percentile",
+                breakpoint_threshold_amount=95,
+                number_of_chunks=None,
+                buffer_size=1,
             )
         else:
             logger.info("Using RecursiveCharacterTextSplitter for text splitting")

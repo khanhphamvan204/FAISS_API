@@ -14,7 +14,6 @@ import logging
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain_community.vectorstores import FAISS
 import time
-from sentence_transformers import SentenceTransformer
 
 router = APIRouter()
 logger = logging.getLogger(__name__)

@@ -14,10 +14,19 @@ Pillow
 faiss-cpu
 pdf2image
 opencv-python
-numpy
 pytesseract
 python-docx
 openpyxl
 unstructured[xlsx]
-sentence-transformers
 langchain_experimental
+
+# fix numpy version
+numpy<2
+
+# torch CPU
+torch==2.2.0+cpu
+-f https://download.pytorch.org/whl/torch_stable.html
+
+# embeddings
+sentence-transformers
+langchain-huggingface
