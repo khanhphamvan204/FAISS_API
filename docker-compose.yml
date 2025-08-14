@@ -1,11 +1,30 @@
 version: '3.8'
 
 services:
+  # MongoDB service
+  mongodb:
+    image: mongo:7.0
+    container_name: faiss-mongodb
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: 123
+      MONGO_INITDB_DATABASE: faiss_db
+    volumes:
+      - mongodb_data:/data/db
+      - ./mongo-init:/docker-entrypoint-initdb.d
+    networks:
+      - app-network
+
   app:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: faiss-api-main
+    depends_on:
+      - mongodb
     ports:
       - "8000:8000"
     volumes:
@@ -13,9 +32,14 @@ services:
       - ./.env:/app/.env
     environment:
       - PYTHONUNBUFFERED=1
-      - MONGO_URI=mongodb://admin:123@host.docker.internal:27017/faiss_db?authSource=admin
+      - DATABASE_URL=mongodb://admin:123@mongodb:27017/faiss_db?authSource=admin
     networks:
       - app-network
+    restart: unless-stopped
+
+volumes:
+  mongodb_data:
+
 
 networks:
   app-network:
