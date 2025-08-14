@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="vi">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vector Search với LLM</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+            backdrop-filter: blur(10px);
+        }
+
+        .header {
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            padding: 30px;
+            text-align: center;
+            color: white;
+        }
+
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            font-weight: 300;
+        }
+
+        .header p {
+            font-size: 1.1em;
+            opacity: 0.9;
+        }
+
+        .main-content {
+            padding: 40px;
+        }
+
+        .search-section {
+            margin-bottom: 40px;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #333;
+        }
+
+        input,
+        select,
+        textarea {
+            width: 100%;
+            padding: 15px;
+            border: 2px solid #e1e5e9;
+            border-radius: 10px;
+            font-size: 16px;
+            transition: all 0.3s ease;
+            background: white;
+        }
+
+        input:focus,
+        select:focus,
+        textarea:focus {
+            outline: none;
+            border-color: #4facfe;
+            box-shadow: 0 0 0 3px rgba(79, 172, 254, 0.1);
+        }
+
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 20px;
+        }
+
+        .search-button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 18px 40px;
+            border-radius: 50px;
+            font-size: 18px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            width: 100%;
+            margin-top: 20px;
+        }
+
+        .search-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+        }
+
+        .search-button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 40px;
+            color: #667eea;
+        }
+
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 4px solid #e1e5e9;
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+
+        .results-section {
+            margin-top: 40px;
+        }
+
+        .llm-response {
+            background: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%);
+            padding: 30px;
+            border-radius: 15px;
+            margin-bottom: 30px;
+            border-left: 5px solid #4facfe;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+        }
+
+        .llm-response h3 {
+            color: #333;
+            margin-bottom: 15px;
+            font-size: 1.4em;
+        }
+
+        .llm-response .content {
+            line-height: 1.8;
+            color: #555;
+            font-size: 16px;
+        }
+
+        .search-results {
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+
+        .results-header {
+            background: linear-gradient(135deg, #ff9a9e 0%, #fad0c4 100%);
+            padding: 20px;
+            color: #333;
+        }
+
+        .result-item {
+            padding: 25px;
+            border-bottom: 1px solid #f0f0f0;
+            transition: all 0.3s ease;
+        }
+
+        .result-item:last-child {
+            border-bottom: none;
+        }
+
+        .result-item:hover {
+            background: #f8f9fa;
+            transform: translateX(5px);
+        }
+
+        .result-content {
+            font-size: 16px;
+            line-height: 1.6;
+            color: #333;
+            margin-bottom: 15px;
+        }
+
+        .result-metadata {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            font-size: 14px;
+            color: #666;
+        }
+
+        .metadata-item {
+            background: #f8f9fa;
+            padding: 5px 12px;
+            border-radius: 20px;
+            border: 1px solid #e9ecef;
+        }
+
+        .similarity-score {
+            background: linear-gradient(135deg, #84fab0 0%, #8fd3f4 100%);
+            color: white;
+            font-weight: 600;
+        }
+
+        .error {
+            background: linear-gradient(135deg, #ff9a9e 0%, #fecfef 100%);
+            color: #721c24;
+            padding: 20px;
+            border-radius: 10px;
+            margin: 20px 0;
+            border-left: 5px solid #dc3545;
+        }
+
+        @media (max-width: 768px) {
+            .form-row {
+                grid-template-columns: 1fr;
+            }
+
+            .container {
+                margin: 10px;
+            }
+
+            .main-content {
+                padding: 20px;
+            }
+
+            .header {
+                padding: 20px;
+            }
+
+            .header h1 {
+                font-size: 2em;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔍 Vector Search với LLM</h1>
+            <p>Tìm kiếm thông minh và nhận câu trả lời từ AI</p>
+        </div>
+
+        <div class="main-content">
+            <div class="search-section">
+                <form id="searchForm">
+                    <div class="form-group">
+                        <label for="query">Câu hỏi của bạn:</label>
+                        <textarea id="query" rows="3" placeholder="Nhập câu hỏi hoặc từ khóa tìm kiếm..."
+                            required></textarea>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="fileType">Loại tài liệu:</label>
+                            <select id="fileType" required>
+                                <option value="">Chọn loại tài liệu</option>
+                                <option value="public">📖 Public</option>
+                                <option value="student">🎓 Student</option>
+                                <option value="teacher">👩‍🏫 Teacher</option>
+                                <option value="admin">🔐 Admin</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="k">Số kết quả (1-100):</label>
+                            <input type="number" id="k" min="1" max="100" value="5" required>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="threshold">Ngưỡng tương quan (0.0-1.0):</label>
+                            <input type="number" id="threshold" min="0" max="1" step="0.1" value="0.5" required>
+                        </div>
+                    </div>
+
+                    <button type="submit" class="search-button">🚀 Tìm kiếm và phân tích</button>
+                </form>
+            </div>
+
+            <div class="loading" id="loading">
+                <div class="spinner"></div>
+                <p>Đang xử lý câu hỏi...</p>
+            </div>
+
+            <div class="results-section" id="resultsSection" style="display: none;">
+                <div class="llm-response" id="llmResponse">
+                    <h3>💡 Câu trả lời từ AI:</h3>
+                    <div class="content" id="llmContent"></div>
+                </div>
+                <div class="search-results">
+                    <div class="results-header">
+                        <h3>📄 Kết quả chi tiết</h3>
+                        <div id="searchInfo"></div>
+                    </div>
+                    <div id="searchResults"></div>
+                </div>
+            </div>
+
+            <div id="errorContainer"></div>
+        </div>
+    </div>
+
+    <script>
+        // Cố định API URL và Gemini API Key
+        const FIXED_API_URL = "http://localhost:8000/documents/vector/search";
+        const FIXED_GEMINI_KEY = "AIzaSyC3ejjBrmP1d4-b6DHTcP6hCTXH7q065tE";
+
+        async function generateLLMResponse(query, searchResults) {
+            // Sử dụng toàn bộ nội dung tài liệu, không giới hạn ký tự
+            const context = searchResults.map((r, i) => `[Tài liệu ${i + 1}]: ${r.content}`).join("\n\n");
+
+            // Kiểm tra độ dài context để tránh vượt quá giới hạn token
+            if (context.length > 100000) {
+                throw new Error("Nội dung tài liệu quá dài, vui lòng giảm số lượng tài liệu hoặc tăng ngưỡng tương quan.");
+            }
+
+            // Tối ưu hóa prompt
+            const prompt = `Bạn là một AI thông minh. Dựa vào các tài liệu dưới đây, trả lời câu hỏi bằng tiếng Việt, rõ ràng, có cấu trúc. Nếu tài liệu quá dài, hãy tóm tắt nội dung liên quan trước khi trả lời. Nếu không có thông tin phù hợp, hãy trả lời: "Không có đủ thông tin để trả lời. Vui lòng cung cấp truy vấn chi tiết hơn hoặc kiểm tra loại tài liệu."
+Câu hỏi: ${query}
+Tài liệu:
+${context}
+Trả lời:`;
+
+            try {
+                const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${FIXED_GEMINI_KEY}`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        contents: [{ parts: [{ text: prompt }] }],
+                        generationConfig: { temperature: 0.3, maxOutputTokens: 4096 } // Giảm temperature, tăng maxOutputTokens
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Lỗi API: ${response.status} - ${response.statusText}. Vui lòng kiểm tra kết nối hoặc API key.`);
+                }
+
+                const data = await response.json();
+                console.log("Gemini API raw:", data);
+
+                if (!data.candidates || !Array.isArray(data.candidates) || data.candidates.length === 0) {
+                    throw new Error(data.error?.message || "Gemini không trả về dữ liệu hợp lệ.");
+                }
+
+                const parts = data.candidates[0]?.content?.parts;
+                if (!parts || parts.length === 0 || !parts[0].text) {
+                    throw new Error("Gemini trả về nội dung trống.");
+                }
+
+                return parts[0].text;
+            } catch (err) {
+                throw new Error(`Lỗi khi gọi Gemini API: ${err.message}`);
+            }
+        }
+
+        document.getElementById('searchForm').addEventListener('submit', async function (e) {
+            e.preventDefault();
+            const query = document.getElementById('query').value.trim();
+            const fileType = document.getElementById('fileType').value;
+            const k = parseInt(document.getElementById('k').value);
+            const threshold = parseFloat(document.getElementById('threshold').value);
+
+            // Kiểm tra truy vấn
+            if (query.length < 5) {
+                showError("Truy vấn quá ngắn, vui lòng cung cấp thêm chi tiết.");
+                return;
+            }
+
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('resultsSection').style.display = 'none';
+            clearError();
+
+            try {
+                const res = await fetch(FIXED_API_URL, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ query, file_type: fileType, k, similarity_threshold: threshold })
+                });
+
+                if (!res.ok) {
+                    throw new Error(`Lỗi Vector Search API: ${res.status} - ${res.statusText}`);
+                }
+
+                const data = await res.json();
+                const llmResp = await generateLLMResponse(query, data.results);
+                displayResults(data, llmResp);
+            } catch (err) {
+                showError(`Lỗi: ${err.message}`);
+            } finally {
+                document.getElementById('loading').style.display = 'none';
+            }
+        });
+
+        function displayResults(data, llmResp) {
+            document.getElementById('llmContent').innerHTML = llmResp.replace(/\n/g, "<br>");
+            document.getElementById('resultsSection').style.display = 'block';
+        }
+
+        function showError(msg) {
+            document.getElementById('errorContainer').innerHTML = `<div class="error">${msg}</div>`;
+        }
+
+        function clearError() {
+            document.getElementById('errorContainer').innerHTML = '';
+        }
+    </script>
+</body>
+
+</html>
