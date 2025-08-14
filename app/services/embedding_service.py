@@ -49,35 +49,129 @@ def get_embedding_model():
     # from langchain_community.embeddings import FakeEmbeddings
     # return FakeEmbeddings(size=384)
 
-def get_text_splitter(use_semantic: bool = True):
-    """Get text splitter - semantic or traditional"""
-    try:
-        if use_semantic:
-            logger.info("Using SemanticChunker for text splitting")
-            embedding_model = get_embedding_model()
-            return SemanticChunker(
+def semantic_sliding_window_chunking(documents: List[Document], embedding_model, window_overlap: float = 0.2) -> List[Document]:
+    """
+    Sliding Window với tỷ lệ overlap dựa trên semantic boundaries
+    
+    Args:
+        documents: List các Document cần chia
+        embedding_model: Model embedding
+        window_overlap: Tỷ lệ overlap (0.0-1.0)
+    
+    Returns:
+        List các Document chunks có overlap theo tỷ lệ
+    """
+    logger.info(f"Applying semantic sliding window chunking with {window_overlap*100}% overlap")
+    
+    all_chunks = []
+    
+    for doc in documents:
+        try:
+            # Tạo semantic chunker
+            semantic_chunker = SemanticChunker(
                 embeddings=embedding_model,
                 breakpoint_threshold_type="percentile",
                 breakpoint_threshold_amount=95,
-                number_of_chunks=None,
-                buffer_size=1,
+                sentence_split_regex=r'(?<=[.?!…:])\s+(?=[A-ZÀÁẠẢÃÂẦẤẬẨẪĂẰẮẶẲẴÈÉẸẺẼÊỀẾỆỂỄÌÍỊỈĨÒÓỌỎÕÔỒỐỘỔỖƠỜỚỢỞỠÙÚỤỦŨƯỪỨỰỬỮỲÝỴỶỸĐ\"\'\(\[0-9])',
+                buffer_size=2
             )
+            
+            # Chia văn bản thành semantic chunks
+            text_chunks = semantic_chunker.split_text(doc.page_content)
+            logger.info(f"Created {len(text_chunks)} semantic chunks for document")
+            
+            # Áp dụng sliding window với overlap
+            sliding_chunks = []
+            
+            for i in range(len(text_chunks)):
+                if i == 0:
+                    # Chunk đầu tiên không có overlap
+                    sliding_chunks.append(text_chunks[i])
+                else:
+                    # Tính toán overlap size dựa trên tỷ lệ
+                    prev_chunk_words = text_chunks[i-1].split()
+                    overlap_words_count = int(len(prev_chunk_words) * window_overlap)
+                    
+                    if overlap_words_count > 0:
+                        # Lấy overlap theo từ thay vì ký tự để tự nhiên hơn
+                        overlap_text = ' '.join(prev_chunk_words[-overlap_words_count:])
+                        new_chunk_text = overlap_text + " " + text_chunks[i]
+                    else:
+                        new_chunk_text = text_chunks[i]
+                    
+                    sliding_chunks.append(new_chunk_text)
+            
+            # Tạo Document objects từ sliding chunks
+            for j, chunk_text in enumerate(sliding_chunks):
+                chunk_metadata = doc.metadata.copy()
+                chunk_metadata['chunk_index'] = j
+                chunk_metadata['total_chunks'] = len(sliding_chunks)
+                chunk_metadata['has_overlap'] = j > 0
+                chunk_metadata['overlap_ratio'] = window_overlap if j > 0 else 0.0
+                
+                chunk_doc = Document(
+                    page_content=chunk_text,
+                    metadata=chunk_metadata
+                )
+                all_chunks.append(chunk_doc)
+                
+        except Exception as e:
+            logger.warning(f"Semantic sliding window failed for document: {e}")
+            # Fallback to traditional chunking
+            fallback_splitter = RecursiveCharacterTextSplitter(
+                chunk_size=2000, 
+                chunk_overlap=int(2000 * window_overlap)  # Áp dụng overlap ratio
+            )
+            fallback_chunks = fallback_splitter.split_documents([doc])
+            
+            # Thêm metadata về fallback
+            for chunk in fallback_chunks:
+                chunk.metadata['chunking_method'] = 'fallback_traditional'
+                chunk.metadata['overlap_ratio'] = window_overlap
+            
+            all_chunks.extend(fallback_chunks)
+    
+    logger.info(f"Total chunks created with sliding window: {len(all_chunks)}")
+    return all_chunks
+
+def get_text_splitter(use_semantic: bool = True, window_overlap: float = 0.2):
+    """Get text splitter - semantic with sliding window or traditional"""
+    try:
+        if use_semantic:
+            logger.info(f"Using SemanticChunker with sliding window (overlap: {window_overlap*100}%)")
+            embedding_model = get_embedding_model()
+            
+            # Tạo wrapper function để sử dụng semantic sliding window
+            class SemanticSlidingWindowSplitter:
+                def __init__(self, embedding_model, window_overlap):
+                    self.embedding_model = embedding_model
+                    self.window_overlap = window_overlap
+                
+                def split_documents(self, documents):
+                    return semantic_sliding_window_chunking(
+                        documents, 
+                        self.embedding_model, 
+                        self.window_overlap
+                    )
+            
+            return SemanticSlidingWindowSplitter(embedding_model, window_overlap)
+            
         else:
-            logger.info("Using RecursiveCharacterTextSplitter for text splitting")
+            logger.info(f"Using RecursiveCharacterTextSplitter with {window_overlap*100}% overlap")
             return RecursiveCharacterTextSplitter(
                 chunk_size=2000, 
-                chunk_overlap=200
+                chunk_overlap=int(2000 * window_overlap)
             )
     except Exception as e:
-        logger.warning(f"Failed to create SemanticChunker: {e}")
+        logger.warning(f"Failed to create SemanticSlidingWindow: {e}")
         logger.info("Falling back to RecursiveCharacterTextSplitter")
         return RecursiveCharacterTextSplitter(
             chunk_size=2000, 
-            chunk_overlap=200
+            chunk_overlap=int(2000 * window_overlap)
         )
 
-def add_to_embedding(file_path: str, metadata, use_semantic_chunking: bool = True):
-    """Add documents to vector database"""
+def add_to_embedding(file_path: str, metadata, use_semantic_chunking: bool = True, window_overlap: float = 0.2):
+    """Add documents to vector database with sliding window overlap"""
     try:
         logger.info(f"Starting embedding process for: {file_path}")
         
@@ -87,18 +181,19 @@ def add_to_embedding(file_path: str, metadata, use_semantic_chunking: bool = Tru
             logger.warning(f"No documents loaded from {file_path}")
             return False
 
-        # Split into chunks with semantic or traditional splitter
-        text_splitter = get_text_splitter(use_semantic=use_semantic_chunking)
+        # Split into chunks with semantic sliding window or traditional splitter
+        text_splitter = get_text_splitter(use_semantic=use_semantic_chunking, window_overlap=window_overlap)
         
         try:
             chunks = text_splitter.split_documents(documents)
-            logger.info(f"Successfully created {len(chunks)} chunks using {'semantic' if use_semantic_chunking else 'traditional'} chunking")
+            chunking_method = "semantic sliding window" if use_semantic_chunking else "traditional"
+            logger.info(f"Successfully created {len(chunks)} chunks using {chunking_method} with {window_overlap*100}% overlap")
         except Exception as e:
             if use_semantic_chunking:
-                logger.warning(f"Semantic chunking failed: {e}. Falling back to traditional chunking")
-                text_splitter = get_text_splitter(use_semantic=False)
+                logger.warning(f"Semantic sliding window chunking failed: {e}. Falling back to traditional chunking")
+                text_splitter = get_text_splitter(use_semantic=False, window_overlap=window_overlap)
                 chunks = text_splitter.split_documents(documents)
-                logger.info(f"Created {len(chunks)} chunks using fallback traditional chunking")
+                logger.info(f"Created {len(chunks)} chunks using fallback traditional chunking with {window_overlap*100}% overlap")
             else:
                 raise e
         
@@ -142,6 +237,10 @@ def add_to_embedding(file_path: str, metadata, use_semantic_chunking: bool = Tru
         try:
             db.save_local(vector_db_path)
             logger.info(f"Successfully saved FAISS index to {vector_db_path}")
+            
+            # Log chunking statistics
+            overlap_count = sum(1 for chunk in chunks if chunk.metadata.get('has_overlap', False))
+            logger.info(f"Chunking statistics: {overlap_count}/{len(chunks)} chunks have overlap")
             
             # Verify files were created
             if os.path.exists(f"{vector_db_path}/index.faiss"):
@@ -203,8 +302,8 @@ def delete_from_faiss_index(vector_db_path: str, doc_id: str) -> bool:
         logger.error(f"Error deleting from FAISS index: {str(e)}")
         return False
 
-def update_document_metadata_in_vector_store(doc_id: str, old_metadata: dict, new_metadata, use_semantic_chunking: bool = True) -> bool:
-    """Update document by re-embedding"""
+def update_document_metadata_in_vector_store(doc_id: str, old_metadata: dict, new_metadata, use_semantic_chunking: bool = True, window_overlap: float = 0.2) -> bool:
+    """Update document by re-embedding with sliding window overlap"""
     try:
         old_file_type = old_metadata.get('file_type')
         old_filename = old_metadata.get('filename')
@@ -216,10 +315,10 @@ def update_document_metadata_in_vector_store(doc_id: str, old_metadata: dict, ne
         if not success:
             return False
         
-        # Re-embed with new metadata
+        # Re-embed with new metadata and sliding window overlap
         file_path = new_metadata.url
         if os.path.exists(file_path):
-            return add_to_embedding(file_path, new_metadata, use_semantic_chunking)
+            return add_to_embedding(file_path, new_metadata, use_semantic_chunking, window_overlap)
         else:
             logger.error(f"File not found for re-embedding: {file_path}")
             return False
@@ -271,19 +370,19 @@ def update_metadata_only(doc_id: str, new_metadata) -> bool:
         logger.error(f"Error updating metadata only: {str(e)}")
         return False
 
-def smart_metadata_update(doc_id: str, old_metadata: dict, new_metadata, force_re_embed: bool = False, use_semantic_chunking: bool = True) -> bool:
-    """Smart metadata update with fallback logic"""
+def smart_metadata_update(doc_id: str, old_metadata: dict, new_metadata, force_re_embed: bool = False, use_semantic_chunking: bool = True, window_overlap: float = 0.2) -> bool:
+    """Smart metadata update with fallback logic and sliding window overlap"""
     try:
         file_type_changed = old_metadata.get('file_type') != new_metadata.file_type
         filename_changed = old_metadata.get('filename') != new_metadata.filename
         
         if file_type_changed or filename_changed or force_re_embed:
-            return update_document_metadata_in_vector_store(doc_id, old_metadata, new_metadata, use_semantic_chunking)
+            return update_document_metadata_in_vector_store(doc_id, old_metadata, new_metadata, use_semantic_chunking, window_overlap)
         else:
             success = update_metadata_only(doc_id, new_metadata)
             if not success:
                 logger.info("Metadata-only update failed, attempting re-embedding")
-                return update_document_metadata_in_vector_store(doc_id, old_metadata, new_metadata, use_semantic_chunking)
+                return update_document_metadata_in_vector_store(doc_id, old_metadata, new_metadata, use_semantic_chunking, window_overlap)
             return success
             
     except Exception as e:
