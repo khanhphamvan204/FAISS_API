@@ -9,7 +9,6 @@ services:
     volumes:
       - mongo-data:/data/db
     environment:
-      # Thêm authentication nếu cần
       - MONGO_INITDB_ROOT_USERNAME=admin
       - MONGO_INITDB_ROOT_PASSWORD=123
       - MONGO_INITDB_DATABASE=faiss_db
