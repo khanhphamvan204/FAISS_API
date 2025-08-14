@@ -102,29 +102,8 @@ def get_mongo_connection():
         logger.error(f"MongoDB operation failed: {e}")
         yield None  # Return None instead of raising exception
 
-def save_metadata(metadata):
-    """Save metadata to MongoDB with proper error handling"""
-    mongodb_success = False
-    
-    # Try MongoDB first
-    try:
-        with get_mongo_connection() as client:
-            if client is not None:
-                db = client["faiss_db"]
-                collection = db["metadata"]
-                
-                metadata_dict = metadata.dict(by_alias=True)
-                result = collection.insert_one(metadata_dict)
-                
-                if result.inserted_id:
-                    logger.info(f"Successfully saved metadata to MongoDB for _id: {metadata.id}")
-                    mongodb_success = True
-                else:
-                    raise PyMongoError("Insert operation failed")
-    except Exception as e:
-        logger.warning(f"MongoDB save failed: {str(e)}")
-    
-    # Always also save to JSON file as backup/fallback
+def save_metadata_to_json(metadata):
+    """Save metadata to JSON file"""
     try:
         _, vector_db_path = get_file_paths(metadata.file_type, metadata.filename)
         metadata_file = os.path.join(vector_db_path, "metadata.json")
@@ -143,15 +122,44 @@ def save_metadata(metadata):
         with open(metadata_file, 'w', encoding='utf-8') as f:
             json.dump(existing_metadata, f, ensure_ascii=False, indent=2)
         
-        if mongodb_success:
-            logger.info(f"Successfully saved metadata to both MongoDB and JSON file: {metadata_file}")
-        else:
-            logger.info(f"Fallback: Successfully saved metadata to JSON file: {metadata_file}")
+        logger.info(f"Successfully saved metadata to JSON file: {metadata_file}")
         return True
         
-    except Exception as file_error:
-        logger.error(f"Failed to save to JSON file: {file_error}")
-        return mongodb_success  # Return True if MongoDB worked, False if both failed
+    except Exception as e:
+        logger.error(f"Failed to save to JSON file: {e}")
+        return False
+
+def save_metadata(metadata):
+    """Save metadata to MongoDB first, fallback to JSON only if MongoDB fails"""
+    # Try MongoDB first
+    try:
+        with get_mongo_connection() as client:
+            if client is not None:
+                db = client["faiss_db"]
+                collection = db["metadata"]
+                
+                metadata_dict = metadata.dict(by_alias=True)
+                result = collection.insert_one(metadata_dict)
+                
+                if result.inserted_id:
+                    logger.info(f"Successfully saved metadata to MongoDB for _id: {metadata.id}")
+                    return True
+                else:
+                    logger.warning("MongoDB insert operation returned no inserted_id")
+                    
+    except Exception as e:
+        logger.warning(f"MongoDB save failed: {str(e)}")
+    
+    # MongoDB failed, fallback to JSON file
+    logger.info("MongoDB save failed, falling back to JSON file storage")
+    json_success = save_metadata_to_json(metadata)
+    
+    if json_success:
+        logger.info("Fallback successful: Metadata saved to JSON file")
+        return True
+    else:
+        logger.error("Both MongoDB and JSON file save failed")
+        return False
 
 def delete_metadata(doc_id: str) -> bool:
     """Delete metadata with proper connection handling"""
@@ -169,6 +177,8 @@ def delete_metadata(doc_id: str) -> bool:
                 if result.deleted_count > 0:
                     logger.info(f"Successfully deleted metadata from MongoDB for _id: {doc_id}")
                     mongodb_success = True
+                else:
+                    logger.info(f"Document not found in MongoDB: {doc_id}")
     except Exception as e:
         logger.warning(f"MongoDB delete failed: {str(e)}")
     
@@ -196,7 +206,12 @@ def delete_metadata(doc_id: str) -> bool:
         except Exception as e:
             logger.error(f"Error deleting from {metadata_file}: {str(e)}")
     
-    return mongodb_success or json_success
+    # Return success if either MongoDB or JSON succeeded
+    success = mongodb_success or json_success
+    if not success:
+        logger.error(f"Failed to delete metadata from both MongoDB and JSON files: {doc_id}")
+    
+    return success
 
 def find_document_info(doc_id: str) -> dict:
     """Find document info with proper connection handling"""
@@ -212,6 +227,8 @@ def find_document_info(doc_id: str) -> dict:
                 if doc_info:
                     logger.info(f"Found document in MongoDB: {doc_id}")
                     return doc_info
+                else:
+                    logger.info(f"Document not found in MongoDB: {doc_id}")
     except Exception as e:
         logger.warning(f"MongoDB search failed: {str(e)}")
     
@@ -236,18 +253,59 @@ def find_document_info(doc_id: str) -> dict:
         except Exception as e:
             logger.error(f"Error reading {metadata_file}: {str(e)}")
     
-    logger.warning(f"Document not found: {doc_id}")
+    logger.warning(f"Document not found in both MongoDB and JSON files: {doc_id}")
     return None
+
+def get_all_metadata():
+    """Get all metadata from MongoDB with JSON fallback"""
+    # Try MongoDB first
+    try:
+        with get_mongo_connection() as client:
+            if client is not None:
+                db = client["faiss_db"]
+                collection = db["metadata"]
+                
+                metadata_list = list(collection.find({}))
+                if metadata_list:
+                    logger.info(f"Retrieved {len(metadata_list)} documents from MongoDB")
+                    return metadata_list
+                else:
+                    logger.info("No documents found in MongoDB")
+                    
+    except Exception as e:
+        logger.warning(f"MongoDB get_all failed: {str(e)}")
+    
+    # Fallback to JSON files
+    logger.info("Retrieving metadata from JSON files as fallback")
+    all_metadata = []
+    base_path = Config.DATA_PATH
+    metadata_paths = [
+        f"{base_path}/{Config.FILE_TYPE_PATHS[role]['vector_folder']}/metadata.json"
+        for role in Config.FILE_TYPE_PATHS
+    ]
+    
+    for metadata_file in metadata_paths:
+        try:
+            if os.path.exists(metadata_file):
+                with open(metadata_file, 'r', encoding='utf-8') as f:
+                    metadata_list = json.load(f)
+                    all_metadata.extend(metadata_list)
+        except Exception as e:
+            logger.error(f"Error reading {metadata_file}: {str(e)}")
+    
+    logger.info(f"Retrieved {len(all_metadata)} documents from JSON files")
+    return all_metadata
 
 def get_connection_status():
     """Get current MongoDB connection status"""
+    is_connected = mongo_manager.is_connected()
     status = {
-        "mongodb_connected": mongo_manager.is_connected(),
-        "connection_url": Config.DATABASE_URL.split('@')[1] if '@' in Config.DATABASE_URL else Config.DATABASE_URL
+        "mongodb_connected": is_connected,
+        "connection_url": Config.DATABASE_URL.split('@')[1] if '@' in Config.DATABASE_URL else Config.DATABASE_URL,
+        "fallback_mode": not is_connected
     }
     return status
 
-# Optional: Add this to your FastAPI app startup
 def initialize_mongo():
     """Initialize MongoDB connection at startup"""
     try:
@@ -259,7 +317,6 @@ def initialize_mongo():
     except Exception as e:
         logger.error(f"Failed to initialize MongoDB: {e}")
 
-# Optional: Add this to your FastAPI app shutdown
 def close_mongo():
     """Close MongoDB connection at shutdown"""
     mongo_manager.close()
