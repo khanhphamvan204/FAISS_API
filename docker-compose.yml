@@ -1,30 +1,10 @@
-version: '3.8'
-
 services:
-  # MongoDB service
-  mongodb:
-    image: mongo:7.0
-    container_name: faiss-mongodb
-    restart: unless-stopped
-    ports:
-      - "27017:27017"
-    environment:
-      MONGO_INITDB_ROOT_USERNAME: admin
-      MONGO_INITDB_ROOT_PASSWORD: 123
-      MONGO_INITDB_DATABASE: faiss_db
-    volumes:
-      - mongodb_data:/data/db
-      - ./mongo-init:/docker-entrypoint-initdb.d
-    networks:
-      - app-network
-
+  # FastAPI Application
   app:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: faiss-api-main
-    depends_on:
-      - mongodb
     ports:
       - "8000:8000"
     volumes:
@@ -32,14 +12,46 @@ services:
       - ./.env:/app/.env
     environment:
       - PYTHONUNBUFFERED=1
-      - DATABASE_URL=mongodb://admin:123@mongodb:27017/faiss_db?authSource=admin
+    networks:
+      - app-network
+    # Sửa đổi ở đây
+    depends_on:
+      mongo:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # MongoDB Database
+  mongo:
+    image: mongo:6.0
+    container_name: mongo-db
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=admin
+      - MONGO_INITDB_ROOT_PASSWORD=123
+      - MONGO_INITDB_DATABASE=faiss_db
+    # Thêm healthcheck vào đây
+    healthcheck:
+      test: |
+        mongosh --host localhost \
+                --port 27017 \
+                --username admin \
+                --password 123 \
+                --authenticationDatabase admin \
+                --eval "db.adminCommand('ping')"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     networks:
       - app-network
     restart: unless-stopped
 
 volumes:
-  mongodb_data:
-
+  mongo-data:
+    driver: local
 
 networks:
   app-network:

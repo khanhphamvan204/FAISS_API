@@ -39,11 +39,13 @@ class MongoManager:
                     minPoolSize=2,
                     maxIdleTimeMS=30000,
                     waitQueueTimeoutMS=5000,
-                    serverSelectionTimeoutMS=5000,  # Reduced timeout
-                    connectTimeoutMS=5000,           # Reduced timeout
+                    serverSelectionTimeoutMS=10000,  # Longer timeout for external connection
+                    connectTimeoutMS=10000,           # Longer timeout for external connection
                     socketTimeoutMS=30000,
                     retryWrites=True,
-                    retryReads=True
+                    retryReads=True,
+                    # Additional options for external MongoDB
+                    heartbeatFrequencyMS=30000,
                 )
                 # Test connection with timeout
                 self._client.admin.command('ping')
