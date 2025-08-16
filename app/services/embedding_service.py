@@ -2,7 +2,8 @@
 import os
 import logging
 import gc
-from typing import List
+from typing import List, Optional
+from functools import lru_cache
 from langchain.docstore.document import Document
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_experimental.text_splitter import SemanticChunker
@@ -10,7 +11,7 @@ from langchain_community.vectorstores import FAISS
 from app.config import Config
 from app.services.file_service import get_file_paths
 from app.services.metadata_service import find_document_info
-from .document_loader import load_new_documents
+from app.services.document_loader import load_new_documents
 
 # Lựa chọn 1: HuggingFace Embeddings (nhẹ nhất)
 from langchain_community.embeddings import HuggingFaceEmbeddings
@@ -23,31 +24,82 @@ from langchain_community.embeddings import HuggingFaceEmbeddings
 
 logger = logging.getLogger(__name__)
 
-def get_embedding_model():
-    """Get consistent embedding model - multiple options"""
+# Global embedding model cache
+_embedding_model_cache = None
+_embedding_model_lock = None
+
+try:
+    import threading
+    _embedding_model_lock = threading.Lock()
+except ImportError:
+    # Fallback nếu không có threading
+    class DummyLock:
+        def __enter__(self): return self
+        def __exit__(self, *args): pass
+    _embedding_model_lock = DummyLock()
+
+@lru_cache(maxsize=1)
+def _create_embedding_model():
+    """Private function to create embedding model with caching"""
+    logger.info("Creating new embedding model instance...")
     
     # Option 1: HuggingFace Embeddings (nhẹ nhất, không cần GPU)
-    return HuggingFaceEmbeddings(
+    model = HuggingFaceEmbeddings(
         model_name="AITeamVN/Vietnamese_Embedding",
         model_kwargs={'device': 'cpu'}, 
         encode_kwargs={'normalize_embeddings': True}
     )
     
     # Option 2: OpenAI Embeddings (nếu có API key)
-    # return OpenAIEmbeddings(
+    # model = OpenAIEmbeddings(
     #     model="text-embedding-3-small",  # Nhẹ và rẻ
     #     openai_api_key=os.getenv("OPENAI_API_KEY")
     # )
     
     # Option 3: Ollama Embeddings (local, rất nhẹ)
-    # return OllamaEmbeddings(
+    # model = OllamaEmbeddings(
     #     model="nomic-embed-text:latest",
     #     base_url="http://localhost:11434"
     # )
     
-    # Option 4: Fake Embeddings (để test, không dùng production)
-    # from langchain_community.embeddings import FakeEmbeddings
-    # return FakeEmbeddings(size=384)
+    logger.info("Embedding model created successfully")
+    return model
+
+def get_embedding_model():
+    """Get consistent embedding model with singleton pattern"""
+    global _embedding_model_cache
+    
+    if _embedding_model_cache is None:
+        with _embedding_model_lock:
+            # Double-check pattern
+            if _embedding_model_cache is None:
+                _embedding_model_cache = _create_embedding_model()
+    
+    return _embedding_model_cache
+
+def clear_embedding_model_cache():
+    """Clear embedding model cache - useful for memory management"""
+    global _embedding_model_cache
+    with _embedding_model_lock:
+        if _embedding_model_cache is not None:
+            logger.info("Clearing embedding model cache")
+            _embedding_model_cache = None
+            # Clear LRU cache
+            _create_embedding_model.cache_clear()
+            gc.collect()
+
+class EmbeddingModelManager:
+    """Context manager for embedding model to ensure cleanup"""
+    def __init__(self):
+        self.model = None
+    
+    def __enter__(self):
+        self.model = get_embedding_model()
+        return self.model
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        # Có thể thêm cleanup logic nếu cần
+        pass
 
 def semantic_sliding_window_split(text: str, embedding_model, window_overlap: float = 0.2) -> List[str]:
     """
@@ -55,7 +107,7 @@ def semantic_sliding_window_split(text: str, embedding_model, window_overlap: fl
     
     Args:
         text: Văn bản cần chia
-        embedding_model: Model embedding
+        embedding_model: Model embedding (đã được cached)
         window_overlap: Tỷ lệ overlap (0.0-1.0)
     
     Returns:
@@ -100,12 +152,15 @@ def semantic_sliding_window_split(text: str, embedding_model, window_overlap: fl
         logger.warning(f"Semantic sliding window failed: {e}")
         return [text]  # Fallback: trả về text gốc
 
-def get_text_splitter(use_semantic: bool = True, semantic_overlap: float = 0.2):
+def get_text_splitter(use_semantic: bool = True, semantic_overlap: float = 0.2, embedding_model=None):
     """Get text splitter - semantic or traditional"""
     try:
         if use_semantic:
             logger.info("Using SemanticChunker with sliding window overlap for text splitting")
-            embedding_model = get_embedding_model()
+            
+            # Sử dụng model đã có sẵn thay vì load mới
+            if embedding_model is None:
+                embedding_model = get_embedding_model()
             
             # Custom wrapper class để tích hợp semantic sliding window
             class SemanticSlidingWindowSplitter:
@@ -144,7 +199,7 @@ def get_text_splitter(use_semantic: bool = True, semantic_overlap: float = 0.2):
         )
 
 def add_to_embedding(file_path: str, metadata, use_semantic_chunking: bool = True, semantic_overlap: float = 0.2):
-    """Add documents to vector database"""
+    """Add documents to vector database - optimized version"""
     try:
         logger.info(f"Starting embedding process for: {file_path}")
         
@@ -154,86 +209,92 @@ def add_to_embedding(file_path: str, metadata, use_semantic_chunking: bool = Tru
             logger.warning(f"No documents loaded from {file_path}")
             return False
 
-        # Split into chunks with semantic or traditional splitter
-        text_splitter = get_text_splitter(use_semantic=use_semantic_chunking, semantic_overlap=semantic_overlap)
-        
-        try:
-            chunks = text_splitter.split_documents(documents)
-            if use_semantic_chunking:
-                logger.info(f"Successfully created {len(chunks)} chunks using semantic chunking with {semantic_overlap*100}% overlap")
-            else:
-                logger.info(f"Successfully created {len(chunks)} chunks using traditional chunking")
-        except Exception as e:
-            if use_semantic_chunking:
-                logger.warning(f"Semantic chunking failed: {e}. Falling back to traditional chunking")
-                text_splitter = get_text_splitter(use_semantic=False)
-                chunks = text_splitter.split_documents(documents)
-                logger.info(f"Created {len(chunks)} chunks using fallback traditional chunking")
-            else:
-                raise e
-        
-        if not chunks:
-            logger.warning(f"No chunks created from {file_path}")
-            return False
-        
-        # Get paths and embedding model
-        _, vector_db_path = get_file_paths(metadata.file_type, metadata.filename)
-        embedding_model = get_embedding_model()
-        
-        # Ensure directory exists
-        os.makedirs(vector_db_path, exist_ok=True)
-        
-        # Check if index exists
-        index_exists = (
-            os.path.exists(f"{vector_db_path}/index.faiss") and 
-            os.path.exists(f"{vector_db_path}/index.pkl")
-        )
-        
-        if index_exists:
-            logger.info("Loading existing FAISS index")
+        # Get embedding model once và dùng chung
+        with EmbeddingModelManager() as embedding_model:
+            # Split into chunks with semantic or traditional splitter
+            text_splitter = get_text_splitter(
+                use_semantic=use_semantic_chunking, 
+                semantic_overlap=semantic_overlap,
+                embedding_model=embedding_model  # Pass model đã có
+            )
+            
             try:
-                db = FAISS.load_local(
-                    vector_db_path, 
-                    embedding_model, 
-                    allow_dangerous_deserialization=True
-                )
-                # Add new chunks to existing database
-                db.add_documents(chunks)
-                logger.info(f"Added {len(chunks)} chunks to existing database")
+                chunks = text_splitter.split_documents(documents)
+                if use_semantic_chunking:
+                    logger.info(f"Successfully created {len(chunks)} chunks using semantic chunking with {semantic_overlap*100}% overlap")
+                else:
+                    logger.info(f"Successfully created {len(chunks)} chunks using traditional chunking")
             except Exception as e:
-                logger.error(f"Failed to load existing index: {e}")
+                if use_semantic_chunking:
+                    logger.warning(f"Semantic chunking failed: {e}. Falling back to traditional chunking")
+                    text_splitter = get_text_splitter(use_semantic=False)
+                    chunks = text_splitter.split_documents(documents)
+                    logger.info(f"Created {len(chunks)} chunks using fallback traditional chunking")
+                else:
+                    raise e
+            
+            if not chunks:
+                logger.warning(f"No chunks created from {file_path}")
+                return False
+            
+            # Get paths
+            _, vector_db_path = get_file_paths(metadata.file_type, metadata.filename)
+            
+            # Ensure directory exists
+            os.makedirs(vector_db_path, exist_ok=True)
+            
+            # Check if index exists
+            index_exists = (
+                os.path.exists(f"{vector_db_path}/index.faiss") and 
+                os.path.exists(f"{vector_db_path}/index.pkl")
+            )
+            
+            if index_exists:
+                logger.info("Loading existing FAISS index")
+                try:
+                    db = FAISS.load_local(
+                        vector_db_path, 
+                        embedding_model,  # Dùng model đã có
+                        allow_dangerous_deserialization=True
+                    )
+                    # Add new chunks to existing database
+                    db.add_documents(chunks)
+                    logger.info(f"Added {len(chunks)} chunks to existing database")
+                except Exception as e:
+                    logger.error(f"Failed to load existing index: {e}")
+                    logger.info("Creating new FAISS index")
+                    db = FAISS.from_documents(chunks, embedding_model)
+            else:
                 logger.info("Creating new FAISS index")
                 db = FAISS.from_documents(chunks, embedding_model)
-        else:
-            logger.info("Creating new FAISS index")
-            db = FAISS.from_documents(chunks, embedding_model)
-        
-        # Save the database
-        try:
-            db.save_local(vector_db_path)
-            logger.info(f"Successfully saved FAISS index to {vector_db_path}")
             
-            # Verify files were created
-            if os.path.exists(f"{vector_db_path}/index.faiss"):
-                faiss_size = os.path.getsize(f"{vector_db_path}/index.faiss")
-                logger.info(f"FAISS index file size: {faiss_size} bytes")
-            
-            # Clear memory
-            gc.collect()
-            return True
-            
-        except Exception as e:
-            logger.error(f"Failed to save FAISS index: {e}")
-            return False
+            # Save the database
+            try:
+                db.save_local(vector_db_path)
+                logger.info(f"Successfully saved FAISS index to {vector_db_path}")
+                
+                # Verify files were created
+                if os.path.exists(f"{vector_db_path}/index.faiss"):
+                    faiss_size = os.path.getsize(f"{vector_db_path}/index.faiss")
+                    logger.info(f"FAISS index file size: {faiss_size} bytes")
+                
+                return True
+                
+            except Exception as e:
+                logger.error(f"Failed to save FAISS index: {e}")
+                return False
             
     except Exception as e:
         logger.error(f"Error in add_to_embedding: {e}")
         import traceback
         logger.error(f"Traceback: {traceback.format_exc()}")
         return False
+    finally:
+        # Clear memory sau khi xong
+        gc.collect()
 
 def delete_from_faiss_index(vector_db_path: str, doc_id: str) -> bool:
-    """Delete documents from FAISS index"""
+    """Delete documents from FAISS index - optimized version"""
     try:
         index_path = f"{vector_db_path}/index.faiss"
         pkl_path = f"{vector_db_path}/index.pkl"
@@ -242,7 +303,7 @@ def delete_from_faiss_index(vector_db_path: str, doc_id: str) -> bool:
             logger.warning(f"No FAISS index found at {vector_db_path}")
             return True
         
-        # Use consistent embedding model
+        # Use cached embedding model
         embedding_model = get_embedding_model()
         db = FAISS.load_local(
             vector_db_path, 
@@ -274,7 +335,7 @@ def delete_from_faiss_index(vector_db_path: str, doc_id: str) -> bool:
         return False
 
 def update_document_metadata_in_vector_store(doc_id: str, old_metadata: dict, new_metadata, use_semantic_chunking: bool = True, semantic_overlap: float = 0.2) -> bool:
-    """Update document by re-embedding"""
+    """Update document by re-embedding - optimized version"""
     try:
         old_file_type = old_metadata.get('file_type')
         old_filename = old_metadata.get('filename')
@@ -299,7 +360,7 @@ def update_document_metadata_in_vector_store(doc_id: str, old_metadata: dict, ne
         return False
 
 def update_metadata_only(doc_id: str, new_metadata) -> bool:
-    """Update only metadata without re-embedding"""
+    """Update only metadata without re-embedding - optimized version"""
     try:
         _, vector_db_path = get_file_paths(new_metadata.file_type, new_metadata.filename)
         
@@ -308,7 +369,7 @@ def update_metadata_only(doc_id: str, new_metadata) -> bool:
             logger.warning(f"Vector database not found at {vector_db_path}")
             return False
         
-        # Use consistent embedding model
+        # Use cached embedding model
         embedding_model = get_embedding_model()
         db = FAISS.load_local(
             vector_db_path, 
@@ -359,3 +420,18 @@ def smart_metadata_update(doc_id: str, old_metadata: dict, new_metadata, force_r
     except Exception as e:
         logger.error(f"Error in smart metadata update: {str(e)}")
         return False
+
+# Utility functions for performance monitoring
+def get_embedding_model_info():
+    """Get information about current embedding model"""
+    global _embedding_model_cache
+    return {
+        "is_cached": _embedding_model_cache is not None,
+        "cache_info": _create_embedding_model.cache_info() if hasattr(_create_embedding_model, 'cache_info') else None
+    }
+
+# Cleanup function for graceful shutdown
+def cleanup_embedding_resources():
+    """Cleanup embedding resources on shutdown"""
+    logger.info("Cleaning up embedding resources...")
+    clear_embedding_model_cache()
