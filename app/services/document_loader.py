@@ -744,6 +744,7 @@ from langchain_community.document_loaders import (
     CSVLoader,
     UnstructuredExcelLoader
 )
+from docx import Document as DocxDocument
 
 logger = logging.getLogger(__name__)
 
@@ -1076,8 +1077,64 @@ def process_pdf_smart(file_path: str) -> list:
     
     return texts
 
+def extract_docx_with_tables(docx_path, table_sep="\t"):
+    """
+    Trích xuất văn bản và bảng từ file DOCX
+    """
+    try:
+        doc = DocxDocument(docx_path)
+        full_text = []
+        
+        # Lấy tất cả paragraphs và tables theo thứ tự xuất hiện
+        for element in doc.element.body:
+            if element.tag.endswith('}p'):  # paragraph
+                # Tìm paragraph tương ứng
+                for para in doc.paragraphs:
+                    if para._element == element:
+                        text = para.text.strip()
+                        if text:
+                            full_text.append(text)
+                        break
+            
+            elif element.tag.endswith('}tbl'):  # table
+                # Tìm table tương ứng
+                for table in doc.tables:
+                    if table._element == element:
+                        # full_text.append("\n--- TABLE ---")
+                        
+                        # Trích xuất bảng
+                        table_text = []
+                        for row in table.rows:
+                            row_text = table_sep.join(cell.text.strip() for cell in row.cells)
+                            if row_text.strip():  # Chỉ thêm dòng không rỗng
+                                table_text.append(row_text)
+                        
+                        if table_text:
+                            full_text.extend(table_text)
+                        
+                        # full_text.append("--- END TABLE ---\n")
+                        break
+        
+        # Kết hợp tất cả text
+        combined_text = "\n".join(full_text)
+        logger.info(f"Extracted {len(combined_text)} characters from DOCX with tables")
+        
+        return combined_text
+        
+    except Exception as e:
+        logger.error(f"Error extracting DOCX with tables: {str(e)}")
+        # Fallback: chỉ lấy text thông thường
+        try:
+            doc = DocxDocument(docx_path)
+            text = "\n".join([para.text for para in doc.paragraphs if para.text.strip()])
+            logger.info(f"Fallback: Extracted {len(text)} characters from DOCX (text only)")
+            return text
+        except Exception as fallback_e:
+            logger.error(f"Fallback extraction also failed: {str(fallback_e)}")
+            return ""
+
 def load_new_documents(file_path: str, metadata) -> list:
-    """Load documents from various file formats with smart PDF processing"""
+    """Load documents from various file formats with smart PDF processing and enhanced DOCX support"""
     documents = []
     
     try:
@@ -1089,7 +1146,7 @@ def load_new_documents(file_path: str, metadata) -> list:
         supported_extensions = {
             'pdf': 'pdf_smart',  # Smart PDF processing
             'txt': TextLoader,
-            'docx': Docx2txtLoader,
+            'docx': 'docx_with_tables',  # Enhanced DOCX processing
             'csv': CSVLoader,
             'xlsx': UnstructuredExcelLoader,
             'xls': UnstructuredExcelLoader
@@ -1115,6 +1172,20 @@ def load_new_documents(file_path: str, metadata) -> list:
                                 
                     except Exception as e:
                         logger.error(f"Error processing PDF {file_path}: {str(e)}")
+                
+                elif extension == 'docx':
+                    try:
+                        # Enhanced DOCX processing with table support
+                        text = extract_docx_with_tables(file_path)
+                        metadata_dict = metadata.dict(by_alias=True) if hasattr(metadata, 'dict') else metadata
+                        
+                        if text and text.strip():
+                            documents.append(Document(page_content=text, metadata=metadata_dict))
+                        else:
+                            logger.warning(f"No text extracted from DOCX: {file_path}")
+                            
+                    except Exception as e:
+                        logger.error(f"Error processing DOCX {file_path}: {str(e)}")
                         
                 else:
                     try:
