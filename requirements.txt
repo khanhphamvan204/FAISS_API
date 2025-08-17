@@ -29,3 +29,4 @@ torch==2.2.0+cpu
 # embeddings
 sentence-transformers
 langchain-huggingface
+PyJWT

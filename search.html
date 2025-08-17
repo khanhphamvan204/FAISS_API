@@ -27,7 +27,7 @@
 
         .header {
             text-align: center;
-            margin-bottom: 30px;
+            margin-bottom: 20px;
             color: white;
         }
 
@@ -42,11 +42,80 @@
             opacity: 0.9;
         }
 
+        /* Token Authentication Section */
+        .auth-section {
+            background: linear-gradient(135deg, #ff9a9e 0%, #fecfef 100%);
+            padding: 20px;
+            border-radius: 15px;
+            margin-bottom: 20px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+        }
+
+        .auth-container {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+
+        .token-input {
+            flex: 1;
+            min-width: 300px;
+            padding: 12px 15px;
+            border: 2px solid #fff;
+            border-radius: 25px;
+            font-size: 14px;
+            background: rgba(255, 255, 255, 0.95);
+        }
+
+        .token-input:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.2);
+        }
+
+        .auth-btn {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 25px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .auth-btn:hover {
+            background: #5a6fd8;
+            transform: translateY(-2px);
+        }
+
+        .auth-status {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-weight: 600;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 14px;
+        }
+
+        .auth-status.authenticated {
+            background: rgba(40, 167, 69, 0.2);
+            color: #28a745;
+        }
+
+        .auth-status.unauthenticated {
+            background: rgba(220, 53, 69, 0.2);
+            color: #dc3545;
+        }
+
         .main-content {
             display: grid;
             grid-template-columns: 1fr 2fr;
             gap: 30px;
             margin-bottom: 30px;
+            position: relative;
         }
 
         .search-panel {
@@ -63,6 +132,28 @@
             padding: 25px;
             box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
             min-height: 500px;
+        }
+
+        .disabled-overlay {
+            position: relative;
+            pointer-events: none;
+            opacity: 0.5;
+        }
+
+        .disabled-overlay::after {
+            content: "🔒 Vui lòng xác thực token để sử dụng";
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(220, 53, 69, 0.9);
+            color: white;
+            padding: 15px 30px;
+            border-radius: 10px;
+            font-weight: 600;
+            z-index: 10;
+            white-space: nowrap;
+            font-size: 16px;
         }
 
         .form-group {
@@ -261,6 +352,15 @@
             .header h1 {
                 font-size: 2em;
             }
+
+            .auth-container {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .token-input {
+                min-width: auto;
+            }
         }
     </style>
 </head>
@@ -269,11 +369,24 @@
     <div class="container">
         <div class="header">
             <h1>🔍 Vector Search</h1>
-            <p>Enhanced Document Search with Threshold</p>
+            <p>Enhanced Document Search with Token Authentication</p>
+        </div>
+
+        <!-- Authentication Section -->
+        <div class="auth-section">
+            <div class="auth-container">
+                <input type="password" id="tokenInput" class="token-input" placeholder="Nhập token xác thực..."
+                    onkeypress="if(event.key==='Enter') authenticateToken()">
+                <button class="auth-btn" onclick="authenticateToken()">🔐 Xác thực</button>
+                <button class="auth-btn" onclick="clearToken()" style="background: #dc3545;">🗑️ Xóa token</button>
+                <div class="auth-status unauthenticated" id="authStatus">
+                    🔒 Chưa xác thực
+                </div>
+            </div>
         </div>
 
         <div class="main-content">
-            <div class="search-panel">
+            <div class="search-panel" id="searchPanel">
                 <h3>🎯 Tìm kiếm tài liệu</h3>
 
                 <div class="note">
@@ -320,11 +433,11 @@
                 </div>
             </div>
 
-            <div class="results-panel">
+            <div class="results-panel" id="resultsPanel">
                 <h3>📊 Kết quả tìm kiếm</h3>
                 <div id="results">
                     <div class="no-results">
-                        <p>Nhập câu truy vấn, chọn ngưỡng và nhấn "Tìm kiếm" để bắt đầu</p>
+                        <p>Xác thực token và nhập câu truy vấn để bắt đầu tìm kiếm</p>
                     </div>
                 </div>
             </div>
@@ -333,6 +446,113 @@
 
     <script>
         const API_BASE_URL = 'http://localhost:8000';
+        let authToken = localStorage.getItem('authToken') || '';
+        let isAuthenticated = false;
+
+        // Token Authentication Functions
+        function authenticateToken() {
+            const token = document.getElementById('tokenInput').value.trim();
+            if (!token) {
+                alert('Vui lòng nhập token!');
+                return;
+            }
+
+            // Test token với API health check có authorization
+            fetch(`${API_BASE_URL}/health`, {
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            })
+                .then(response => {
+                    if (response.ok) {
+                        authToken = token;
+                        isAuthenticated = true;
+                        localStorage.setItem('authToken', token);
+                        updateAuthUI(true);
+                        showNotification('✅ Xác thực thành công!', 'success');
+                    } else {
+                        throw new Error('Token không hợp lệ');
+                    }
+                })
+                .catch(error => {
+                    isAuthenticated = false;
+                    updateAuthUI(false);
+                    showNotification(`❌ ${error.message}`, 'error');
+                });
+        }
+
+        function clearToken() {
+            authToken = '';
+            isAuthenticated = false;
+            localStorage.removeItem('authToken');
+            document.getElementById('tokenInput').value = '';
+            updateAuthUI(false);
+            showNotification('🗑️ Token đã được xóa', 'info');
+            document.getElementById('results').innerHTML = '<div class="no-results"><p>Vui lòng xác thực token để tìm kiếm</p></div>';
+        }
+
+        function updateAuthUI(authenticated) {
+            const authStatus = document.getElementById('authStatus');
+            const searchPanel = document.getElementById('searchPanel');
+            const resultsPanel = document.getElementById('resultsPanel');
+
+            if (authenticated) {
+                authStatus.className = 'auth-status authenticated';
+                authStatus.innerHTML = '✅ Đã xác thực';
+
+                // Enable content
+                searchPanel.classList.remove('disabled-overlay');
+                resultsPanel.classList.remove('disabled-overlay');
+
+                document.getElementById('results').innerHTML = `
+                    <div class="search-info">
+                        <strong>✅ Đã xác thực thành công!</strong><br>
+                        Hệ thống sẵn sàng để tìm kiếm tài liệu với ngưỡng tương đồng.
+                    </div>
+                    <div class="no-results">
+                        <p>Nhập câu truy vấn, chọn ngưỡng và nhấn "Tìm kiếm" để bắt đầu</p>
+                    </div>
+                `;
+            } else {
+                authStatus.className = 'auth-status unauthenticated';
+                authStatus.innerHTML = '🔒 Chưa xác thực';
+
+                // Disable content
+                searchPanel.classList.add('disabled-overlay');
+                resultsPanel.classList.add('disabled-overlay');
+
+                document.getElementById('results').innerHTML = '<div class="no-results"><p>Vui lòng xác thực token để tìm kiếm</p></div>';
+            }
+        }
+
+        function getAuthHeaders() {
+            if (!authToken) {
+                throw new Error('Token không tồn tại. Vui lòng xác thực lại.');
+            }
+            return {
+                'Authorization': `Bearer ${authToken}`,
+                'Content-Type': 'application/json'
+            };
+        }
+
+        function showNotification(message, type) {
+            // Create temporary notification
+            const notification = document.createElement('div');
+            notification.className = `error ${type}`;
+            notification.textContent = message;
+            notification.style.position = 'fixed';
+            notification.style.top = '20px';
+            notification.style.left = '50%';
+            notification.style.transform = 'translateX(-50%)';
+            notification.style.zIndex = '1000';
+            notification.style.maxWidth = '400px';
+
+            document.body.appendChild(notification);
+            setTimeout(() => {
+                document.body.removeChild(notification);
+            }, 3000);
+        }
 
         // Update range displays
         document.getElementById('k').addEventListener('input', function () {
@@ -347,6 +567,12 @@
 
         document.getElementById('searchForm').addEventListener('submit', async function (e) {
             e.preventDefault();
+
+            if (!isAuthenticated) {
+                showNotification('❌ Vui lòng xác thực token trước khi tìm kiếm!', 'error');
+                return;
+            }
+
             await performSearch();
         });
 
@@ -357,7 +583,7 @@
             const threshold = parseFloat(document.getElementById('threshold').value);
 
             if (!query || !fileType) {
-                alert('Vui lòng nhập câu truy vấn và chọn loại tài liệu');
+                showNotification('Vui lòng nhập câu truy vấn và chọn loại tài liệu', 'error');
                 return;
             }
 
@@ -368,7 +594,7 @@
 
             // Show loading
             searchBtn.disabled = true;
-            searchBtn.innerHTML = '<div class="spinner"></div> Đang tìm kiếm...';
+            searchBtn.innerHTML = '<div class="spinner" style="width: 20px; height: 20px; border-width: 2px; margin-right: 10px; display: inline-block;"></div> Đang tìm kiếm...';
             resultsDiv.innerHTML = '<div class="loading"><div class="spinner"></div><p>Đang tìm kiếm...</p></div>';
 
             try {
@@ -385,14 +611,17 @@
 
                 const response = await fetch(`${API_BASE_URL}/documents/vector/search`, {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
+                    headers: getAuthHeaders(),
                     body: JSON.stringify(requestBody)
                 });
 
                 if (!response.ok) {
                     const errorData = await response.json();
+                    if (response.status === 401) {
+                        isAuthenticated = false;
+                        updateAuthUI(false);
+                        throw new Error('Token đã hết hạn. Vui lòng xác thực lại.');
+                    }
                     throw new Error(errorData.detail || `HTTP ${response.status}`);
                 }
 
@@ -407,6 +636,11 @@
                         ${error.message}
                     </div>
                 `;
+
+                if (error.message.includes('Token')) {
+                    isAuthenticated = false;
+                    updateAuthUI(false);
+                }
             } finally {
                 searchBtn.disabled = false;
                 searchBtn.innerHTML = '🔍 Tìm kiếm';
@@ -491,47 +725,22 @@
             }
         }
 
-        // Test connection on page load
-        window.addEventListener('load', async function () {
-            try {
-                const response = await fetch(`${API_BASE_URL}/health`);
-                if (response.ok) {
-                    console.log('✅ API connection successful');
-                    const resultsDiv = document.getElementById('results');
-                    resultsDiv.innerHTML = `
-                        <div class="search-info">
-                            <strong>✅ Kết nối API thành công!</strong><br>
-                            Hệ thống sẵn sàng để tìm kiếm tài liệu với ngưỡng tương đồng.
-                        </div>
-                        <div class="no-results">
-                            <p>Nhập câu truy vấn, chọn ngưỡng và nhấn "Tìm kiếm" để bắt đầu</p>
-                        </div>
-                    `;
-                } else {
-                    console.warn('⚠️ API health check failed');
-                }
-            } catch (error) {
-                console.error('❌ Cannot connect to API:', error);
-                document.getElementById('results').innerHTML = `
-                    <div class="error">
-                        <strong>❌ Không thể kết nối tới API server:</strong><br>
-                        Vui lòng kiểm tra server đang chạy tại: <code>${API_BASE_URL}</code><br>
-                        Chi tiết lỗi: ${error.message}
-                    </div>
-                `;
-            }
-        });
-
         // Keyboard shortcuts
         document.addEventListener('keydown', function (e) {
-            if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+            if ((e.ctrlKey || e.metaKey) && e.key === 'Enter' && isAuthenticated) {
                 e.preventDefault();
                 performSearch();
+            }
+
+            if (e.target.id === 'tokenInput' && e.key === 'Enter') {
+                authenticateToken();
             }
         });
 
         // Auto-save form data
         function saveFormData() {
+            if (!isAuthenticated) return;
+
             const formData = {
                 query: document.getElementById('query').value,
                 fileType: document.getElementById('fileType').value,
@@ -565,9 +774,6 @@
         document.getElementById('k').addEventListener('input', saveFormData);
         document.getElementById('threshold').addEventListener('input', saveFormData);
 
-        // Load saved form data on page load
-        loadFormData();
-
         // Sample queries
         const sampleQueries = [
             "lịch học",
@@ -588,13 +794,57 @@
             this.placeholder = "Nhập câu hỏi hoặc từ khóa tìm kiếm...";
         });
 
+        // Test connection and initialize
+        window.addEventListener('load', async function () {
+            // Check saved token
+            if (authToken) {
+                document.getElementById('tokenInput').value = authToken;
+                authenticateToken();
+            } else {
+                updateAuthUI(false);
+            }
+
+            // Load saved form data
+            loadFormData();
+
+            // Test API connection
+            try {
+                const response = await fetch(`${API_BASE_URL}/health`);
+                if (response.ok) {
+                    console.log('✅ API connection successful');
+                } else {
+                    console.warn('⚠️ API health check failed');
+                    showNotification('⚠️ Không thể kết nối tới API server', 'error');
+                }
+            } catch (error) {
+                console.error('❌ Cannot connect to API:', error);
+                document.getElementById('results').innerHTML = `
+                    <div class="error">
+                        <strong>❌ Không thể kết nối tới API server:</strong><br>
+                        Vui lòng kiểm tra server đang chạy tại: <code>${API_BASE_URL}</code><br>
+                        Chi tiết lỗi: ${error.message}
+                    </div>
+                `;
+            }
+        });
+
+        // Auto-update auth UI when token input changes
+        document.getElementById('tokenInput').addEventListener('input', function () {
+            if (isAuthenticated && this.value !== authToken) {
+                isAuthenticated = false;
+                updateAuthUI(false);
+            }
+        });
+
         // Performance info
         console.log(`
-🚀 Vector Search - Enhanced Version
+🚀 Vector Search - Enhanced Version with Token Authentication
+✅ Added token authentication
 ✅ Added similarity threshold selection
 ✅ Displays similarity scores in results
 ✅ Uses similarity_score_threshold retriever
 ✅ Optimized for precise document retrieval
+✅ Token persistence in localStorage
         `);
     </script>
 </body>

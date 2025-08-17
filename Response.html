@@ -47,8 +47,97 @@
             opacity: 0.9;
         }
 
+        /* Token Authentication Section */
+        .auth-section {
+            background: linear-gradient(135deg, #ff9a9e 0%, #fecfef 100%);
+            padding: 20px;
+            border-bottom: 2px solid #e9ecef;
+        }
+
+        .auth-container {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+
+        .token-input {
+            flex: 1;
+            min-width: 300px;
+            padding: 12px 15px;
+            border: 2px solid #fff;
+            border-radius: 25px;
+            font-size: 14px;
+            background: rgba(255, 255, 255, 0.95);
+        }
+
+        .token-input:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.2);
+        }
+
+        .auth-btn {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 25px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .auth-btn:hover {
+            background: #5a6fd8;
+            transform: translateY(-2px);
+        }
+
+        .auth-status {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-weight: 600;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 14px;
+        }
+
+        .auth-status.authenticated {
+            background: rgba(40, 167, 69, 0.2);
+            color: #28a745;
+        }
+
+        .auth-status.unauthenticated {
+            background: rgba(220, 53, 69, 0.2);
+            color: #dc3545;
+        }
+
         .main-content {
             padding: 40px;
+            position: relative;
+        }
+
+        .disabled-overlay {
+            position: relative;
+            pointer-events: none;
+            opacity: 0.5;
+        }
+
+        .disabled-overlay::after {
+            content: "🔒 Vui lòng xác thực token để sử dụng";
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(220, 53, 69, 0.9);
+            color: white;
+            padding: 15px 30px;
+            border-radius: 10px;
+            font-weight: 600;
+            z-index: 10;
+            white-space: nowrap;
+            font-size: 16px;
         }
 
         .search-section {
@@ -254,6 +343,15 @@
             .header h1 {
                 font-size: 2em;
             }
+
+            .auth-container {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .token-input {
+                min-width: auto;
+            }
         }
     </style>
 </head>
@@ -262,10 +360,23 @@
     <div class="container">
         <div class="header">
             <h1>🔍 Vector Search với LLM</h1>
-            <p>Tìm kiếm thông minh và nhận câu trả lời từ AI</p>
+            <p>Tìm kiếm thông minh và nhận câu trả lời từ AI với Token Authentication</p>
         </div>
 
-        <div class="main-content">
+        <!-- Authentication Section -->
+        <div class="auth-section">
+            <div class="auth-container">
+                <input type="password" id="tokenInput" class="token-input" placeholder="Nhập token xác thực..."
+                    onkeypress="if(event.key==='Enter') authenticateToken()">
+                <button class="auth-btn" onclick="authenticateToken()">🔐 Xác thực</button>
+                <button class="auth-btn" onclick="clearToken()" style="background: #dc3545;">🗑️ Xóa token</button>
+                <div class="auth-status unauthenticated" id="authStatus">
+                    🔒 Chưa xác thực
+                </div>
+            </div>
+        </div>
+
+        <div class="main-content" id="mainContent">
             <div class="search-section">
                 <form id="searchForm">
                     <div class="form-group">
@@ -329,6 +440,81 @@
         const FIXED_API_URL = "http://localhost:8000/documents/vector/search";
         const FIXED_GEMINI_KEY = "AIzaSyC3ejjBrmP1d4-b6DHTcP6hCTXH7q065tE";
 
+        let authToken = localStorage.getItem('authToken') || '';
+        let isAuthenticated = false;
+
+        // Token Authentication Functions
+        function authenticateToken() {
+            const token = document.getElementById('tokenInput').value.trim();
+            if (!token) {
+                showError('Vui lòng nhập token!');
+                return;
+            }
+
+            // Test token với API health check có authorization
+            fetch(`http://localhost:8000/health`, {
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            })
+                .then(response => {
+                    if (response.ok) {
+                        authToken = token;
+                        isAuthenticated = true;
+                        localStorage.setItem('authToken', token);
+                        updateAuthUI(true);
+                        showSuccess('✅ Xác thực thành công!');
+                    } else {
+                        throw new Error('Token không hợp lệ');
+                    }
+                })
+                .catch(error => {
+                    isAuthenticated = false;
+                    updateAuthUI(false);
+                    showError(`❌ ${error.message}`);
+                });
+        }
+
+        function clearToken() {
+            authToken = '';
+            isAuthenticated = false;
+            localStorage.removeItem('authToken');
+            document.getElementById('tokenInput').value = '';
+            updateAuthUI(false);
+            showInfo('🗑️ Token đã được xóa');
+            document.getElementById('resultsSection').style.display = 'none';
+        }
+
+        function updateAuthUI(authenticated) {
+            const authStatus = document.getElementById('authStatus');
+            const mainContent = document.getElementById('mainContent');
+
+            if (authenticated) {
+                authStatus.className = 'auth-status authenticated';
+                authStatus.innerHTML = '✅ Đã xác thực';
+
+                // Enable content
+                mainContent.classList.remove('disabled-overlay');
+            } else {
+                authStatus.className = 'auth-status unauthenticated';
+                authStatus.innerHTML = '🔒 Chưa xác thực';
+
+                // Disable content
+                mainContent.classList.add('disabled-overlay');
+            }
+        }
+
+        function getAuthHeaders() {
+            if (!authToken) {
+                throw new Error('Token không tồn tại. Vui lòng xác thực lại.');
+            }
+            return {
+                'Authorization': `Bearer ${authToken}`,
+                'Content-Type': 'application/json'
+            };
+        }
+
         async function generateLLMResponse(query, searchResults) {
             // Sử dụng toàn bộ nội dung tài liệu, không giới hạn ký tự
             const context = searchResults.map((r, i) => `[Tài liệu ${i + 1}]: ${r.content}`).join("\n\n");
@@ -379,6 +565,12 @@ Trả lời:`;
 
         document.getElementById('searchForm').addEventListener('submit', async function (e) {
             e.preventDefault();
+
+            if (!isAuthenticated) {
+                showError('❌ Vui lòng xác thực token trước khi tìm kiếm!');
+                return;
+            }
+
             const query = document.getElementById('query').value.trim();
             const fileType = document.getElementById('fileType').value;
             const k = parseInt(document.getElementById('k').value);
@@ -390,6 +582,11 @@ Trả lời:`;
                 return;
             }
 
+            if (!fileType) {
+                showError("Vui lòng chọn loại tài liệu.");
+                return;
+            }
+
             document.getElementById('loading').style.display = 'block';
             document.getElementById('resultsSection').style.display = 'none';
             clearError();
@@ -397,19 +594,35 @@ Trả lời:`;
             try {
                 const res = await fetch(FIXED_API_URL, {
                     method: "POST",
-                    headers: { "Content-Type": "application/json" },
+                    headers: getAuthHeaders(),
                     body: JSON.stringify({ query, file_type: fileType, k, similarity_threshold: threshold })
                 });
 
                 if (!res.ok) {
-                    throw new Error(`Lỗi Vector Search API: ${res.status} - ${res.statusText}`);
+                    if (res.status === 401) {
+                        isAuthenticated = false;
+                        updateAuthUI(false);
+                        throw new Error('Token đã hết hạn. Vui lòng xác thực lại.');
+                    }
+                    const errorData = await res.json();
+                    throw new Error(`Lỗi Vector Search API: ${res.status} - ${errorData.detail || res.statusText}`);
                 }
 
                 const data = await res.json();
+
+                if (data.results.length === 0) {
+                    showError("Không tìm thấy tài liệu phù hợp. Thử giảm ngưỡng tương quan hoặc thay đổi từ khóa.");
+                    return;
+                }
+
                 const llmResp = await generateLLMResponse(query, data.results);
                 displayResults(data, llmResp);
             } catch (err) {
                 showError(`Lỗi: ${err.message}`);
+                if (err.message.includes('Token')) {
+                    isAuthenticated = false;
+                    updateAuthUI(false);
+                }
             } finally {
                 document.getElementById('loading').style.display = 'none';
             }
@@ -417,16 +630,271 @@ Trả lời:`;
 
         function displayResults(data, llmResp) {
             document.getElementById('llmContent').innerHTML = llmResp.replace(/\n/g, "<br>");
+
+            // Hiển thị thông tin tìm kiếm
+            document.getElementById('searchInfo').innerHTML = `
+                <strong>Truy vấn:</strong> "${data.query}"<br>
+                <strong>Tìm thấy:</strong> ${data.total_found} kết quả<br>
+                <strong>Loại tài liệu:</strong> ${data.file_type}<br>
+                <strong>Ngưỡng tương đồng:</strong> ${data.similarity_threshold}<br>
+                <strong>Thời gian tìm kiếm:</strong> ${data.search_time_ms}ms
+            `;
+
+            // Hiển thị kết quả chi tiết
+            let resultsHtml = '';
+            data.results.forEach((result, index) => {
+                resultsHtml += `
+                    <div class="result-item">
+                        <div class="result-content">
+                            <strong>Tài liệu ${index + 1}:</strong><br>
+                            ${result.content.substring(0, 300)}${result.content.length > 300 ? '...' : ''}
+                        </div>
+                        <div class="result-metadata">
+                            <span class="metadata-item">📁 ${result.metadata.filename || 'N/A'}</span>
+                            <span class="metadata-item">👤 ${result.metadata.uploaded_by || 'N/A'}</span>
+                            <span class="metadata-item similarity-score">⭐ ${result.metadata.similarity_score ? result.metadata.similarity_score.toFixed(2) : 'N/A'}</span>
+                        </div>
+                    </div>
+                `;
+            });
+
+            document.getElementById('searchResults').innerHTML = resultsHtml;
             document.getElementById('resultsSection').style.display = 'block';
         }
 
         function showError(msg) {
             document.getElementById('errorContainer').innerHTML = `<div class="error">${msg}</div>`;
+            setTimeout(() => {
+                document.getElementById('errorContainer').innerHTML = '';
+            }, 5000);
+        }
+
+        function showSuccess(msg) {
+            document.getElementById('errorContainer').innerHTML = `
+                <div class="error" style="background: linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%); color: #155724; border-left-color: #28a745;">
+                    ${msg}
+                </div>
+            `;
+            setTimeout(() => {
+                document.getElementById('errorContainer').innerHTML = '';
+            }, 3000);
+        }
+
+        function showInfo(msg) {
+            document.getElementById('errorContainer').innerHTML = `
+                <div class="error" style="background: linear-gradient(135deg, #d1ecf1 0%, #bee5eb 100%); color: #0c5460; border-left-color: #17a2b8;">
+                    ${msg}
+                </div>
+            `;
+            setTimeout(() => {
+                document.getElementById('errorContainer').innerHTML = '';
+            }, 3000);
         }
 
         function clearError() {
             document.getElementById('errorContainer').innerHTML = '';
         }
+
+        // Initialize page
+        document.addEventListener('DOMContentLoaded', function () {
+            // Check saved token
+            if (authToken) {
+                document.getElementById('tokenInput').value = authToken;
+                authenticateToken();
+            } else {
+                updateAuthUI(false);
+            }
+
+            // Load saved form data
+            loadFormData();
+
+            // Add keyboard shortcuts
+            document.addEventListener('keydown', function (e) {
+                // Enter in token input
+                if (e.target.id === 'tokenInput' && e.key === 'Enter') {
+                    authenticateToken();
+                }
+
+                // Ctrl+Enter to search
+                if ((e.ctrlKey || e.metaKey) && e.key === 'Enter' && isAuthenticated) {
+                    e.preventDefault();
+                    document.getElementById('searchForm').dispatchEvent(new Event('submit'));
+                }
+            });
+
+            // Auto-save form data
+            ['query', 'fileType', 'k', 'threshold'].forEach(id => {
+                document.getElementById(id).addEventListener('input', saveFormData);
+                document.getElementById(id).addEventListener('change', saveFormData);
+            });
+
+            // Auto-update auth UI when token input changes
+            document.getElementById('tokenInput').addEventListener('input', function () {
+                if (isAuthenticated && this.value !== authToken) {
+                    isAuthenticated = false;
+                    updateAuthUI(false);
+                }
+            });
+
+            // Sample queries for placeholder
+            const sampleQueries = [
+                "lịch học môn toán",
+                "thông báo điểm thi",
+                "quy định học phí",
+                "đăng ký môn học mới",
+                "lịch thi cuối kỳ"
+            ];
+
+            document.getElementById('query').addEventListener('focus', function () {
+                if (!this.value.trim()) {
+                    const randomQuery = sampleQueries[Math.floor(Math.random() * sampleQueries.length)];
+                    this.placeholder = `Ví dụ: ${randomQuery}`;
+                }
+            });
+
+            document.getElementById('query').addEventListener('blur', function () {
+                this.placeholder = "Nhập câu hỏi hoặc từ khóa tìm kiếm...";
+            });
+
+            // Test API connection
+            fetch('http://localhost:8000/health')
+                .then(response => {
+                    if (response.ok) {
+                        console.log('✅ API connection successful');
+                    } else {
+                        console.warn('⚠️ API health check failed');
+                        showError('⚠️ Không thể kết nối tới API server. Vui lòng kiểm tra server đang chạy.');
+                    }
+                })
+                .catch(error => {
+                    console.error('❌ Cannot connect to API:', error);
+                    showError(`❌ Không thể kết nối tới API server: ${error.message}`);
+                });
+        });
+
+        // Form data persistence functions
+        function saveFormData() {
+            if (!isAuthenticated) return;
+
+            const formData = {
+                query: document.getElementById('query').value,
+                fileType: document.getElementById('fileType').value,
+                k: document.getElementById('k').value,
+                threshold: document.getElementById('threshold').value
+            };
+            localStorage.setItem('vectorSearchLLMFormData', JSON.stringify(formData));
+        }
+
+        function loadFormData() {
+            try {
+                const saved = localStorage.getItem('vectorSearchLLMFormData');
+                if (saved) {
+                    const formData = JSON.parse(saved);
+                    if (formData.query) document.getElementById('query').value = formData.query;
+                    if (formData.fileType) document.getElementById('fileType').value = formData.fileType;
+                    if (formData.k) document.getElementById('k').value = formData.k;
+                    if (formData.threshold) document.getElementById('threshold').value = formData.threshold;
+                }
+            } catch (error) {
+                console.warn('Cannot load saved form data:', error);
+            }
+        }
+
+        // Performance and feature info
+        console.log(`
+🚀 Vector Search với LLM - Enhanced Version with Token Authentication
+✅ Added token authentication with persistence
+✅ Vector search with similarity threshold
+✅ AI-powered responses via Gemini API
+✅ Form data persistence
+✅ Keyboard shortcuts (Ctrl+Enter to search)
+✅ Sample query suggestions
+✅ Enhanced error handling
+✅ Auto token validation
+✅ Responsive design
+        `);
+
+        // Utility functions for better UX
+        function validateForm() {
+            const query = document.getElementById('query').value.trim();
+            const fileType = document.getElementById('fileType').value;
+            const k = parseInt(document.getElementById('k').value);
+            const threshold = parseFloat(document.getElementById('threshold').value);
+
+            if (!query || query.length < 3) {
+                showError('Câu truy vấn quá ngắn. Vui lòng nhập ít nhất 3 ký tự.');
+                return false;
+            }
+
+            if (!fileType) {
+                showError('Vui lòng chọn loại tài liệu.');
+                return false;
+            }
+
+            if (k < 1 || k > 100) {
+                showError('Số lượng kết quả phải từ 1 đến 100.');
+                return false;
+            }
+
+            if (threshold < 0 || threshold > 1) {
+                showError('Ngưỡng tương quan phải từ 0.0 đến 1.0.');
+                return false;
+            }
+
+            if (!isAuthenticated) {
+                showError('Vui lòng xác thực token trước khi tìm kiếm.');
+                return false;
+            }
+
+            return true;
+        }
+
+        // Enhanced search form validation
+        document.getElementById('searchForm').addEventListener('submit', function (e) {
+            e.preventDefault();
+
+            if (validateForm()) {
+                // Form is valid, proceed with search
+                // The actual search logic is already handled above
+            }
+        });
+
+        // Add loading states for better UX
+        function setLoading(isLoading) {
+            const loadingEl = document.getElementById('loading');
+            const searchBtn = document.querySelector('.search-button');
+
+            if (isLoading) {
+                loadingEl.style.display = 'block';
+                searchBtn.disabled = true;
+                searchBtn.innerHTML = '⏳ Đang xử lý...';
+                document.getElementById('resultsSection').style.display = 'none';
+            } else {
+                loadingEl.style.display = 'none';
+                searchBtn.disabled = false;
+                searchBtn.innerHTML = '🚀 Tìm kiếm và phân tích';
+            }
+        }
+
+        // Add connection status indicator
+        function checkAPIStatus() {
+            fetch('http://localhost:8000/health')
+                .then(response => {
+                    const statusEl = document.querySelector('.header p');
+                    if (response.ok) {
+                        statusEl.textContent = 'Tìm kiếm thông minh và nhận câu trả lời từ AI với Token Authentication • API Online ✅';
+                    } else {
+                        statusEl.textContent = 'Tìm kiếm thông minh và nhận câu trả lời từ AI với Token Authentication • API Offline ❌';
+                    }
+                })
+                .catch(() => {
+                    const statusEl = document.querySelector('.header p');
+                    statusEl.textContent = 'Tìm kiếm thông minh và nhận câu trả lời từ AI với Token Authentication • API Offline ❌';
+                });
+        }
+
+        // Check API status periodically
+        setInterval(checkAPIStatus, 30000); // Check every 30 seconds
     </script>
 </body>
 

@@ -7,5 +7,5 @@ embedding_model = HuggingFaceEmbeddings(
 )
 
 # Test thử
-emb = embedding_model.embed_query("Xin chào, đây là test")
+emb = embedding_model.embed_query("Test")
 print(len(emb), emb[:5])

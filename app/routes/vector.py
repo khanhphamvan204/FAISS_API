@@ -1,8 +1,9 @@
 # app/routes/vector.py
-from fastapi import APIRouter, UploadFile, File, HTTPException, Form
+from fastapi import APIRouter, UploadFile, File, HTTPException, Form, Depends
 from app.services.embedding_service import add_to_embedding, delete_from_faiss_index, smart_metadata_update
 from app.services.metadata_service import save_metadata, delete_metadata, find_document_info
 from app.services.file_service import get_file_paths
+from app.services.auth_service import verify_token  
 from app.config import Config
 from pydantic import BaseModel, Field
 import os
@@ -52,7 +53,8 @@ async def add_vector_document(
     uploaded_by: str = Form(...),
     file_type: str = Form(...),
     role_user: str = Form(default="[]"),
-    role_subject: str = Form(default="[]")
+    role_subject: str = Form(default="[]"),
+    current_user: dict = Depends(verify_token)
 ):
     try:
         # Validate file_type
@@ -145,7 +147,10 @@ async def add_vector_document(
         raise HTTPException(status_code=500, detail=f"Error processing file: {str(e)}")
 
 @router.delete("/{doc_id}", response_model=dict)
-async def delete_vector_document(doc_id: str):
+async def delete_vector_document(
+    doc_id: str,
+    current_user: dict = Depends(verify_token)
+):
     try:
         doc_info = find_document_info(doc_id)
         if not doc_info:
@@ -188,7 +193,10 @@ async def delete_vector_document(doc_id: str):
         raise HTTPException(status_code=500, detail=f"Error deleting document: {str(e)}")
 
 @router.get("/{doc_id}", response_model=dict)
-async def get_vector_document(doc_id: str):
+async def get_vector_document(
+    doc_id: str,
+    current_user: dict = Depends(verify_token)
+):
     try:
         doc_info = find_document_info(doc_id)
         if not doc_info:
@@ -215,6 +223,7 @@ async def get_vector_document(doc_id: str):
 @router.put("/{doc_id}", response_model=dict)
 async def update_vector_document(
     doc_id: str,
+    current_user: dict = Depends(verify_token),
     filename: str = Form(None),
     uploaded_by: str = Form(None),
     file_type: str = Form(None),
@@ -349,7 +358,10 @@ async def update_vector_document(
         raise HTTPException(status_code=500, detail=f"Error updating document: {str(e)}")
 
 @router.post("/search", response_model=VectorSearchResponse)
-async def search_vector_documents(request: VectorSearchRequest):
+async def search_vector_documents(
+    request: VectorSearchRequest,
+    current_user: dict = Depends(verify_token)
+):
     start_time = time.time()
     
     try:

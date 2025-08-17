@@ -1,11 +1,12 @@
 # app/routes/documents.py
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 import logging
 from pymongo import MongoClient
 from pymongo.errors import PyMongoError
 from app.config import Config
 import os
 import json
+from app.services.auth_service import verify_token
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -37,7 +38,7 @@ def get_mongo_client():
     return _mongo_client
 
 @router.get("/types", response_model=dict)
-async def get_file_types():
+async def get_file_types(current_user: dict = Depends(verify_token)):
     """Lấy danh sách các loại file được hỗ trợ."""
     return {
         "file_types": [
@@ -49,7 +50,7 @@ async def get_file_types():
     }
 
 @router.get("/list", response_model=dict)
-async def list_documents(file_type: str = None, limit: int = 100, skip: int = 0):
+async def list_documents(current_user: dict = Depends(verify_token), file_type: str = None, limit: int = 100, skip: int = 0):
     """Lấy danh sách tài liệu."""
     try:
         documents = []
