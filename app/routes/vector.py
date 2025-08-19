@@ -3,7 +3,7 @@ from fastapi import APIRouter, UploadFile, File, HTTPException, Form, Depends
 from app.services.embedding_service import add_to_embedding, delete_from_faiss_index, smart_metadata_update
 from app.services.metadata_service import save_metadata, delete_metadata, find_document_info
 from app.services.file_service import get_file_paths
-from app.services.auth_service import verify_token  
+from app.services.auth_service import verify_token_v2 , filter_accessible_files, verify_token
 from app.config import Config
 from pydantic import BaseModel, Field
 import os
@@ -360,7 +360,7 @@ async def update_vector_document(
 @router.post("/search", response_model=VectorSearchResponse)
 async def search_vector_documents(
     request: VectorSearchRequest,
-    current_user: dict = Depends(verify_token)
+    current_user: dict = Depends(verify_token_v2) 
 ):
     start_time = time.time()
     
@@ -402,7 +402,7 @@ async def search_vector_documents(
             logger.info(f"Searching for query: '{request.query}'")
             docs_with_scores = db.similarity_search_with_score(
                 request.query, 
-                k=request.k  # Get more results first
+                k=request.k 
             )
             
             logger.info(f"Found {len(docs_with_scores)} raw results")
@@ -416,18 +416,41 @@ async def search_vector_documents(
             
             logger.info(f"After filtering by threshold {request.similarity_threshold}: {len(filtered_docs)} results")
             
-            # Take only top k results
-            top_results = filtered_docs[:request.k]
+            # Convert to SearchResult format first
+            search_results = [
+                {
+                    "content": doc.page_content,
+                    "metadata": {**doc.metadata, "similarity_score": float(score)}
+                }
+                for doc, score in filtered_docs
+            ]
+            
+            # *** THÊM BƯỚC XÁC THỰC QUYỀN TRUY CẬP V2 ***
+            logger.info(f"Checking file access permissions for user: {current_user.get('username')} ({current_user.get('full_name')})")
+            accessible_results = filter_accessible_files(current_user, search_results)
+            
+            logger.info(f"After permission filtering: {len(accessible_results)} results accessible")
+            
+            # Kiểm tra xem có kết quả nào được phép truy cập không
+            if not accessible_results:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Access denied. You don't have permission to view any documents matching your search query."
+                )
+            
+            # Take only top k results after permission filtering
+            # Note: If accessible_results < k, Python slice will return all available results without error
+            top_results = accessible_results[:request.k]
             
             results = [
                 SearchResult(
-                    content=doc.page_content, 
-                    metadata={**doc.metadata, "similarity_score": float(score)}
+                    content=result["content"], 
+                    metadata=result["metadata"]
                 )
-                for doc, score in top_results
+                for result in top_results
             ]
             
-            logger.info(f"Returning {len(results)} final results")
+            logger.info(f"Requested {request.k} results, returning {len(results)} available results")
             
         except Exception as e:
             logger.error(f"Search execution failed: {str(e)}")
