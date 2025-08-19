@@ -13,7 +13,7 @@ services:
       - ./.env:/app/.env
     environment:
       - PYTHONUNBUFFERED=1
-      - DATABASE_URL=mongodb://mongo:27017/faiss_db?authSource=admin
+      - DATABASE_URL=mongodb://ai-database.bitech.vn:27017/faiss_db?authSource=admin
     networks:
       - app-network
 
