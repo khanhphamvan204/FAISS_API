@@ -152,7 +152,7 @@ def semantic_sliding_window_split(text: str, embedding_model, window_overlap: fl
         logger.warning(f"Semantic sliding window failed: {e}")
         return [text]  # Fallback: trả về text gốc
 
-def get_text_splitter(use_semantic: bool = True, semantic_overlap: float = 0.2, embedding_model=None):
+def get_text_splitter(use_semantic: bool = False, semantic_overlap: float = 0.2, embedding_model=None):
     """Get text splitter - semantic or traditional"""
     try:
         if use_semantic:
@@ -198,7 +198,7 @@ def get_text_splitter(use_semantic: bool = True, semantic_overlap: float = 0.2, 
             chunk_overlap=200
         )
 
-def add_to_embedding(file_path: str, metadata, use_semantic_chunking: bool = True, semantic_overlap: float = 0.2):
+def add_to_embedding(file_path: str, metadata, use_semantic_chunking: bool = False, semantic_overlap: float = 0.2):
     """Add documents to vector database - optimized version"""
     try:
         logger.info(f"Starting embedding process for: {file_path}")

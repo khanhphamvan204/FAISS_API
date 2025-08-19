@@ -140,10 +140,8 @@ async def add_vector_document(
         # Re-raise HTTP exceptions as-is
         raise
     except json.JSONDecodeError as json_error:
-        logger.error(f"JSON decode error in role fields: {str(json_error)}")
         raise HTTPException(status_code=400, detail=f"Invalid JSON in role fields: {str(json_error)}")
     except Exception as e:
-        logger.error(f"Unexpected error processing file: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error processing file: {str(e)}")
 
 @router.delete("/{doc_id}", response_model=dict)
@@ -189,7 +187,6 @@ async def delete_vector_document(
         
         return response
     except Exception as e:
-        logger.error(f"Error deleting document {doc_id}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error deleting document: {str(e)}")
 
 @router.get("/{doc_id}", response_model=dict)
@@ -217,7 +214,6 @@ async def get_vector_document(
             "file_size": file_size
         }
     except Exception as e:
-        logger.error(f"Error getting document {doc_id}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error getting document: {str(e)}")
 
 @router.put("/{doc_id}", response_model=dict)
@@ -354,7 +350,6 @@ async def update_vector_document(
         
         return response
     except Exception as e:
-        logger.error(f"Error updating document {doc_id}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error updating document: {str(e)}")
 
 @router.post("/search", response_model=VectorSearchResponse)
@@ -388,24 +383,18 @@ async def search_vector_documents(
             from app.services.embedding_service import get_embedding_model
             embedding_model = get_embedding_model()
             
-            logger.info(f"Loading FAISS index from: {vector_db_path}")
             db = FAISS.load_local(vector_db_path, embedding_model, allow_dangerous_deserialization=True)
             
         except Exception as e:
-            logger.error(f"Failed to load vector DB: {str(e)}")
-            logger.error(f"This might be due to incompatible embedding models.")
-            logger.error(f"Try deleting the old index and re-creating it.")
             raise HTTPException(status_code=500, detail=f"Failed to load vector database: {str(e)}")
         
         # Perform similarity search with scores
         try:
-            logger.info(f"Searching for query: '{request.query}'")
             docs_with_scores = db.similarity_search_with_score(
                 request.query, 
                 k=request.k 
             )
             
-            logger.info(f"Found {len(docs_with_scores)} raw results")
             
             # IMPORTANT: FAISS L2 distance - lower score = more similar
             # Filter by similarity threshold (lower threshold = stricter)
@@ -414,7 +403,6 @@ async def search_vector_documents(
                 if score >= request.similarity_threshold  
             ]
             
-            logger.info(f"After filtering by threshold {request.similarity_threshold}: {len(filtered_docs)} results")
             
             # Convert to SearchResult format first
             search_results = [
@@ -426,10 +414,8 @@ async def search_vector_documents(
             ]
             
             # *** THÊM BƯỚC XÁC THỰC QUYỀN TRUY CẬP V2 ***
-            logger.info(f"Checking file access permissions for user: {current_user.get('username')} ({current_user.get('full_name')})")
             accessible_results = filter_accessible_files(current_user, search_results)
             
-            logger.info(f"After permission filtering: {len(accessible_results)} results accessible")
             
             # Kiểm tra xem có kết quả nào được phép truy cập không
             if not accessible_results:
@@ -450,12 +436,9 @@ async def search_vector_documents(
                 for result in top_results
             ]
             
-            logger.info(f"Requested {request.k} results, returning {len(results)} available results")
             
         except Exception as e:
-            logger.error(f"Search execution failed: {str(e)}")
             import traceback
-            logger.error(f"Traceback: {traceback.format_exc()}")
             raise HTTPException(status_code=500, detail=f"Search execution failed: {str(e)}")
         
         search_time_ms = round((time.time() - start_time) * 1000, 2)
@@ -472,7 +455,6 @@ async def search_vector_documents(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Unexpected error in search: {str(e)}")
         import traceback
         logger.error(f"Traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail="Internal server error")

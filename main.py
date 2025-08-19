@@ -31,7 +31,6 @@ app.add_middleware(
 # Configure environment
 try:
     os.environ["GOOGLE_API_KEY"] = Config.GEMINI_API_KEY
-    logger.info("GOOGLE_API_KEY configured successfully")
 except AttributeError as e:
     logger.error(f"Config error: {str(e)}")
     raise Exception("Configuration error: Missing GEMINI_API_KEY")

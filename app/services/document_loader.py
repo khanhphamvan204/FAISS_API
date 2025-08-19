@@ -784,17 +784,14 @@ def init_tesseract():
                                   capture_output=True, text=True, timeout=10)
             if result.returncode == 0:
                 available_langs = result.stdout.strip().split('\n')[1:]  # Skip header
-                logger.info(f"Available languages: {available_langs}")
                 
                 # Kiểm tra có tiếng Việt và tiếng Anh không
                 has_vie = 'vie' in available_langs
                 has_eng = 'eng' in available_langs
                 
                 if not has_vie and not has_eng:
-                    logger.error("Neither Vietnamese nor English language support found")
                     return False
                     
-                logger.info(f"Language support - Vietnamese: {has_vie}, English: {has_eng}")
             else:
                 logger.warning("Could not list available languages, proceeding with default")
         except subprocess.TimeoutExpired:
@@ -811,17 +808,13 @@ def init_tesseract():
             
             # Test với cấu hình cơ bản
             test_result = pytesseract.image_to_string(test_img, lang='eng')
-            logger.info("OCR test successful")
         except Exception as e:
-            logger.error(f"OCR test failed: {e}")
             return False
         
         ocr_initialized = True
-        logger.info("Tesseract OCR initialized successfully")
         return True
         
     except Exception as e:
-        logger.error(f"Failed to initialize Tesseract OCR: {str(e)}")
         return False
 
 def is_probably_scanned_first_page(pdf_path, text_threshold=30, image_area_ratio=0.7):
@@ -831,15 +824,12 @@ def is_probably_scanned_first_page(pdf_path, text_threshold=30, image_area_ratio
     
     try:
         if not os.path.exists(pdf_path):
-            logger.error(f"PDF file not found: {pdf_path}")
             return result
             
         doc = fitz.open(pdf_path)
         if len(doc) == 0:
-            logger.error("PDF is empty")
             return result
             
-        logger.info(f"Analyzing first page of PDF: {pdf_path}")
         page = doc[0]  # Chỉ kiểm tra trang đầu tiên
         
         try:
@@ -895,11 +885,9 @@ def extract_text_from_pdf_native(pdf_path):
     
     try:
         if not os.path.exists(pdf_path):
-            logger.error(f"PDF file not found: {pdf_path}")
             return texts
             
         doc = fitz.open(pdf_path)
-        logger.info(f"Extracting native text from {len(doc)} pages")
         
         for page_num in range(len(doc)):
             try:
@@ -908,7 +896,6 @@ def extract_text_from_pdf_native(pdf_path):
                 
                 if text and text.strip():
                     texts.append(text.strip())
-                    logger.info(f"Extracted native text from page {page_num + 1}")
                     
             except Exception as e:
                 logger.error(f"Error extracting text from page {page_num + 1}: {str(e)}")

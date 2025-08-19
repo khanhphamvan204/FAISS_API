@@ -67,7 +67,6 @@ async def list_documents(current_user: dict = Depends(verify_token), file_type: 
             
             
             if documents:
-                logger.info(f"Retrieved {len(documents)} documents from MongoDB")
                 return {"documents": documents, "total": len(documents), "source": "mongodb"}
                 
         except PyMongoError as e:
@@ -101,7 +100,6 @@ async def list_documents(current_user: dict = Depends(verify_token), file_type: 
         total = len(documents)
         documents = documents[skip:skip + limit]
         
-        logger.info(f"Retrieved {len(documents)} documents from JSON files")
         return {"documents": documents, "total": total, "source": "json", "showing": len(documents)}
     
     except Exception as e:
@@ -115,4 +113,3 @@ def close_documents_mongo():
     if _mongo_client:
         _mongo_client.close()
         _mongo_client = None
-        logger.info("Documents MongoDB connection closed")

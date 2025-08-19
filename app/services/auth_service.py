@@ -23,8 +23,6 @@ def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)) 
     """
     try:
         token = credentials.credentials
-        logger.info(token)
-        logger.info(JWT_SECRET_KEY)
         payload = jwt.decode(token, JWT_SECRET_KEY, algorithms=[JWT_ALGORITHM])
        
         return payload
@@ -41,7 +39,6 @@ def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)) 
             headers={"WWW-Authenticate": "Bearer"},
         )
     except Exception as e:
-        logger.error(f"Token verification error: {str(e)}")
         raise HTTPException(
             status_code=401,
             detail="Could not validate credentials",
@@ -63,7 +60,6 @@ def verify_token_v2(credentials: HTTPAuthorizationCredentials = Depends(security
         missing_fields = [field for field in required_fields if field not in payload]
         
         if missing_fields:
-            logger.warning(f"Missing required fields in token payload: {missing_fields}")
             raise HTTPException(
                 status_code=401,
                 detail=f"Invalid token structure. Missing fields: {missing_fields}",
@@ -73,7 +69,6 @@ def verify_token_v2(credentials: HTTPAuthorizationCredentials = Depends(security
         # Kiểm tra các giá trị không được rỗng
         empty_fields = [field for field in required_fields if not payload.get(field)]
         if empty_fields:
-            logger.warning(f"Empty required fields in token payload: {empty_fields}")
             raise HTTPException(
                 status_code=401,
                 detail=f"Invalid token data. Empty fields: {empty_fields}",
@@ -86,7 +81,6 @@ def verify_token_v2(credentials: HTTPAuthorizationCredentials = Depends(security
         # Kiểm tra exp (expiration time)
         if "exp" in payload:
             if current_time >= payload["exp"]:
-                logger.warning(f"Token expired. Current: {current_time}, Exp: {payload['exp']}")
                 raise HTTPException(
                     status_code=401,
                     detail="Token has expired",
@@ -96,7 +90,6 @@ def verify_token_v2(credentials: HTTPAuthorizationCredentials = Depends(security
         # Kiểm tra nbf (not before)
         if "nbf" in payload:
             if current_time < payload["nbf"]:
-                logger.warning(f"Token not yet valid. Current: {current_time}, NBF: {payload['nbf']}")
                 raise HTTPException(
                     status_code=401,
                     detail="Token not yet valid",
@@ -108,7 +101,6 @@ def verify_token_v2(credentials: HTTPAuthorizationCredentials = Depends(security
             # Token không được issue quá 24 giờ trước (tùy chỉnh theo nhu cầu)
             max_age = 24 * 60 * 60  # 24 hours
             if current_time - payload["iat"] > max_age:
-                logger.warning(f"Token too old. Current: {current_time}, IAT: {payload['iat']}")
                 raise HTTPException(
                     status_code=401,
                     detail="Token is too old",
@@ -118,25 +110,21 @@ def verify_token_v2(credentials: HTTPAuthorizationCredentials = Depends(security
         # Kiểm tra token type nếu có
         if "type" in payload:
             if payload["type"] != "access":
-                logger.warning(f"Invalid token type: {payload.get('type')}")
                 raise HTTPException(
                     status_code=401,
                     detail="Invalid token type",
                     headers={"WWW-Authenticate": "Bearer"},
                 )
         
-        logger.info(f"Token v2 verification successful for user: {payload.get('username')}")
         return payload
         
     except jwt.ExpiredSignatureError:
-        logger.error("Token has expired (JWT ExpiredSignatureError)")
         raise HTTPException(
             status_code=401,
             detail="Token has expired",
             headers={"WWW-Authenticate": "Bearer"},
         )
     except jwt.InvalidTokenError as e:
-        logger.error(f"Invalid token (JWT InvalidTokenError): {str(e)}")
         raise HTTPException(
             status_code=401,
             detail="Invalid token",
@@ -146,7 +134,6 @@ def verify_token_v2(credentials: HTTPAuthorizationCredentials = Depends(security
         # Re-raise HTTPExceptions (đã được xử lý ở trên)
         raise
     except Exception as e:
-        logger.error(f"Token v2 verification error: {str(e)}")
         raise HTTPException(
             status_code=401,
             detail="Could not validate credentials",
@@ -177,14 +164,12 @@ def check_file_access_permission(user_payload: Dict[str, Any], file_metadata: Di
         user_type = user_payload.get("user_type", "")
         full_name = user_payload.get("full_name", "")
         
-        logger.info(f"Checking access for user: {user_id}, department: {user_department}, type: {user_type}, name: {full_name}")
         
         # Kiểm tra xem file có metadata role không
         role_info = file_metadata.get("role", {})
         
         # Nếu role rỗng hoặc không tồn tại -> cho phép truy cập
         if not role_info:
-            logger.info("No role restrictions found, allowing access")
             return True
         
         # Lấy danh sách allowed users và subjects
@@ -193,7 +178,6 @@ def check_file_access_permission(user_payload: Dict[str, Any], file_metadata: Di
         
         # Nếu cả user và subject đều rỗng -> cho phép truy cập
         if not allowed_users and not allowed_subjects:
-            logger.info("No user or subject restrictions found, allowing access")
             return True
         
         # Kiểm tra logic phân quyền - CHỈ CẦN THỎA MÃN MỘT TRONG HAI
@@ -203,12 +187,10 @@ def check_file_access_permission(user_payload: Dict[str, Any], file_metadata: Di
         # Kiểm tra user_id nếu có danh sách allowed_users
         if allowed_users:
             user_check_passed = user_id in allowed_users
-            logger.info(f"User check: {user_id} {'PASSED' if user_check_passed else 'FAILED'} (allowed: {allowed_users})")
         
         # Kiểm tra department nếu có danh sách allowed_subjects  
         if allowed_subjects:
             department_check_passed = user_department in allowed_subjects
-            logger.info(f"Department check: {user_department} {'PASSED' if department_check_passed else 'FAILED'} (allowed: {allowed_subjects})")
         
         # Logic OR: Chỉ cần một trong hai điều kiện được thỏa mãn
         has_access = False
@@ -216,12 +198,10 @@ def check_file_access_permission(user_payload: Dict[str, Any], file_metadata: Di
         # Nếu có cấu hình user và user được phép -> cho phép truy cập
         if allowed_users and user_check_passed:
             has_access = True
-            logger.info(f"Access granted via USER permission for {user_id}")
         
         # Nếu có cấu hình subject và department được phép -> cho phép truy cập  
         if allowed_subjects and department_check_passed:
             has_access = True
-            logger.info(f"Access granted via SUBJECT permission for department {user_department}")
         
         if has_access:
             logger.info(f"Access GRANTED for user {user_id} ({full_name}) with department {user_department}")
