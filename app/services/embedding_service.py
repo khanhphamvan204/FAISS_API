@@ -334,7 +334,7 @@ def delete_from_faiss_index(vector_db_path: str, doc_id: str) -> bool:
         logger.error(f"Error deleting from FAISS index: {str(e)}")
         return False
 
-def update_document_metadata_in_vector_store(doc_id: str, old_metadata: dict, new_metadata, use_semantic_chunking: bool = True, semantic_overlap: float = 0.2) -> bool:
+def update_document_metadata_in_vector_store(doc_id: str, old_metadata: dict, new_metadata, use_semantic_chunking: bool = False, semantic_overlap: float = 0.2) -> bool:
     """Update document by re-embedding - optimized version"""
     try:
         old_file_type = old_metadata.get('file_type')
@@ -402,7 +402,7 @@ def update_metadata_only(doc_id: str, new_metadata) -> bool:
         logger.error(f"Error updating metadata only: {str(e)}")
         return False
 
-def smart_metadata_update(doc_id: str, old_metadata: dict, new_metadata, force_re_embed: bool = False, use_semantic_chunking: bool = True, semantic_overlap: float = 0.2) -> bool:
+def smart_metadata_update(doc_id: str, old_metadata: dict, new_metadata, force_re_embed: bool = False, use_semantic_chunking: bool = False, semantic_overlap: float = 0.2) -> bool:
     """Smart metadata update with fallback logic"""
     try:
         file_type_changed = old_metadata.get('file_type') != new_metadata.file_type
