@@ -20,8 +20,6 @@ RUN apt-get update && apt-get install -y \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-#Tải sẵn model HuggingFace vào cache mặc định (/root/.cache/huggingface)
-RUN python -c "from huggingface_hub import snapshot_download; snapshot_download(repo_id='AITeamVN/Vietnamese_Embedding')"
 
 # Copy source code
 COPY . .
