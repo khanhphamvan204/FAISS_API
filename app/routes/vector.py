@@ -216,6 +216,13 @@ async def get_vector_document(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error getting document: {str(e)}")
 
+def standardization(distance:float) -> float:
+    """Chuyển đổi khoảng cách L2 thành điểm tương đồng (similarity score) trong khoảng [0, 1]."""
+    if distance < 0:
+        return 0.0
+    else:
+        return 1 / (1 + distance)
+
 @router.put("/{doc_id}", response_model=dict)
 async def update_vector_document(
     doc_id: str,

@@ -1142,20 +1142,16 @@ def load_new_documents(file_path: str, metadata) -> list:
         if extension in supported_extensions:
             try:
                 logger.info(f"Loading document: {file_path} with extension {extension}")
+                combined_content = ""  # Biến để kết hợp nội dung
                 
                 if extension == 'pdf':
                     try:
-                        # Smart PDF processing
+                        # Smart PDF processing - kết hợp tất cả text
                         texts = process_pdf_smart(file_path)
-                        metadata_dict = metadata.dict(by_alias=True) if hasattr(metadata, 'dict') else metadata
                         
                         for text in texts:
-                            try:
-                                if text and text.strip():
-                                    documents.append(Document(page_content=text, metadata=metadata_dict))
-                            except Exception as e:
-                                logger.warning(f"Error creating document from text: {str(e)}")
-                                continue
+                            if text and text.strip():
+                                combined_content += text + "\n\n"  # Thêm khoảng cách giữa các trang
                                 
                     except Exception as e:
                         logger.error(f"Error processing PDF {file_path}: {str(e)}")
@@ -1163,38 +1159,34 @@ def load_new_documents(file_path: str, metadata) -> list:
                 elif extension == 'docx':
                     try:
                         # Enhanced DOCX processing with table support
-                        text = extract_docx_with_tables(file_path)
-                        metadata_dict = metadata.dict(by_alias=True) if hasattr(metadata, 'dict') else metadata
-                        
-                        if text and text.strip():
-                            documents.append(Document(page_content=text, metadata=metadata_dict))
-                        else:
-                            logger.warning(f"No text extracted from DOCX: {file_path}")
+                        combined_content = extract_docx_with_tables(file_path)
                             
                     except Exception as e:
                         logger.error(f"Error processing DOCX {file_path}: {str(e)}")
                         
                 else:
                     try:
-                        # Standard document loading
+                        # Standard document loading - kết hợp nội dung
                         loader = supported_extensions[extension](file_path)
                         loaded_docs = loader.load()
-                        metadata_dict = metadata.dict(by_alias=True) if hasattr(metadata, 'dict') else metadata
                         
                         for doc in loaded_docs:
-                            try:
-                                documents.append(Document(
-                                    page_content=doc.page_content, 
-                                    metadata=metadata_dict
-                                ))
-                            except Exception as e:
-                                logger.warning(f"Error creating document from loaded doc: {str(e)}")
-                                continue
+                            if doc.page_content and doc.page_content.strip():
+                                combined_content += doc.page_content + "\n\n"
                                 
                     except Exception as e:
                         logger.error(f"Error loading document with standard loader: {str(e)}")
                 
-                logger.info(f"Successfully loaded {len(documents)} documents from {file_path}")
+                # Tạo một Document duy nhất với nội dung đã kết hợp
+                if combined_content and combined_content.strip():
+                    metadata_dict = metadata.dict(by_alias=True) if hasattr(metadata, 'dict') else metadata
+                    documents.append(Document(
+                        page_content=combined_content.strip(), 
+                        metadata=metadata_dict
+                    ))
+                    logger.info(f"Successfully created 1 combined document from {file_path}")
+                else:
+                    logger.warning(f"No content extracted from file: {file_path}")
                 
             except Exception as e:
                 logger.error(f"Error processing file {file_path}: {str(e)}")

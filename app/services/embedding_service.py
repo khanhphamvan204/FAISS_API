@@ -46,7 +46,7 @@ def _create_embedding_model():
     # Option 1: HuggingFace Embeddings (nhẹ nhất, không cần GPU)
     model = HuggingFaceEmbeddings(
         model_name="AITeamVN/Vietnamese_Embedding",
-        model_kwargs={'device': 'cpu'}, 
+        model_kwargs={'device': 'cuda'}, 
         encode_kwargs={'normalize_embeddings': True}
     )
     
@@ -118,8 +118,9 @@ def semantic_sliding_window_split(text: str, embedding_model, window_overlap: fl
             embeddings=embedding_model,
             breakpoint_threshold_type="percentile",
             breakpoint_threshold_amount=95,
-            sentence_split_regex=r'(?<=[.?!…:])\s+(?=[A-ZÀÁẠẢÃÂẦẤẬẨẪĂẰẮẶẲẴÈÉẸẺẼÊỀẾỆỂỄÌÍỊỈĨÒÓỌỎÕÔỒỐỘỔỖƠỜỚỢỞỠÙÚỤỦŨƯỪỨỰỬỮỲÝỴỶỸĐ\"\'\(\[0-9])',
-            buffer_size=2,
+            # sentence_split_regex=r'(?<!\b[A-Za-zÀ-ỹ].)(?<!\b[A-Za-zÀ-ỹ][A-Za-zÀ-ỹ].)(?<!\b[A-Za-zÀ-ỹ][A-Za-zÀ-ỹ][A-Za-zÀ-ỹ].)(?<=[.?!…])\s+(?=[A-ZÀ-Ỵ0-9])',
+            sentence_split_regex=r'(?<!\b\d\.)(?<!\b\d\d\.)(?<!\b\d\d\d\.)(?<!\b[A-Za-zÀ-ỹ]\.)(?<!\b[A-Za-zÀ-ỹ][A-Za-zÀ-ỹ]\.)(?<!\b[A-Za-zÀ-ỹ][A-Za-zÀ-ỹ][A-Za-zÀ-ỹ]\.)(?<=[.?!…])\s+(?=[A-ZÀ-Ỵ0-9])',
+            buffer_size=5,
         )
         
         chunks = semantic_chunker.split_text(text)
@@ -152,7 +153,7 @@ def semantic_sliding_window_split(text: str, embedding_model, window_overlap: fl
         logger.warning(f"Semantic sliding window failed: {e}")
         return [text]  # Fallback: trả về text gốc
 
-def get_text_splitter(use_semantic: bool = False, semantic_overlap: float = 0.2, embedding_model=None):
+def get_text_splitter(use_semantic: bool = True, semantic_overlap: float = 0.2, embedding_model=None):
     """Get text splitter - semantic or traditional"""
     try:
         if use_semantic:
@@ -198,7 +199,7 @@ def get_text_splitter(use_semantic: bool = False, semantic_overlap: float = 0.2,
             chunk_overlap=200
         )
 
-def add_to_embedding(file_path: str, metadata, use_semantic_chunking: bool = False, semantic_overlap: float = 0.2):
+def add_to_embedding(file_path: str, metadata, use_semantic_chunking: bool = True, semantic_overlap: float = 0.2):
     """Add documents to vector database - optimized version"""
     try:
         logger.info(f"Starting embedding process for: {file_path}")
@@ -208,6 +209,7 @@ def add_to_embedding(file_path: str, metadata, use_semantic_chunking: bool = Fal
         if not documents:
             logger.warning(f"No documents loaded from {file_path}")
             return False
+        logger.info(documents);
 
         # Get embedding model once và dùng chung
         with EmbeddingModelManager() as embedding_model:
@@ -334,7 +336,7 @@ def delete_from_faiss_index(vector_db_path: str, doc_id: str) -> bool:
         logger.error(f"Error deleting from FAISS index: {str(e)}")
         return False
 
-def update_document_metadata_in_vector_store(doc_id: str, old_metadata: dict, new_metadata, use_semantic_chunking: bool = False, semantic_overlap: float = 0.2) -> bool:
+def update_document_metadata_in_vector_store(doc_id: str, old_metadata: dict, new_metadata, use_semantic_chunking: bool = True, semantic_overlap: float = 0.2) -> bool:
     """Update document by re-embedding - optimized version"""
     try:
         old_file_type = old_metadata.get('file_type')
@@ -402,7 +404,7 @@ def update_metadata_only(doc_id: str, new_metadata) -> bool:
         logger.error(f"Error updating metadata only: {str(e)}")
         return False
 
-def smart_metadata_update(doc_id: str, old_metadata: dict, new_metadata, force_re_embed: bool = False, use_semantic_chunking: bool = False, semantic_overlap: float = 0.2) -> bool:
+def smart_metadata_update(doc_id: str, old_metadata: dict, new_metadata, force_re_embed: bool = False, use_semantic_chunking: bool = True, semantic_overlap: float = 0.2) -> bool:
     """Smart metadata update with fallback logic"""
     try:
         file_type_changed = old_metadata.get('file_type') != new_metadata.file_type
