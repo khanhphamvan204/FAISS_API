@@ -1120,8 +1120,93 @@ def extract_docx_with_tables(docx_path, table_sep="\t"):
             logger.error(f"Fallback extraction also failed: {str(fallback_e)}")
             return ""
 
-def load_new_documents(file_path: str, metadata) -> list:
-    """Load documents from various file formats with smart PDF processing and enhanced DOCX support"""
+def split_content_into_chunks(content: str, chunk_size: int = 6000, chunk_overlap: int = 600) -> list:
+    """
+    Chia nội dung thành các chunk nhỏ hơn để tránh quá dài
+    
+    Args:
+        content: Nội dung cần chia
+        chunk_size: Kích thước tối đa của mỗi chunk (ký tự)
+        chunk_overlap: Số ký tự overlap giữa các chunk
+    
+    Returns:
+        List các chunk đã được chia
+    """
+    if not content or not content.strip():
+        return []
+    
+    content = content.strip()
+    
+    # Nếu nội dung ngắn hơn chunk_size, trả về nguyên văn
+    if len(content) <= chunk_size:
+        return [content]
+    
+    chunks = []
+    start = 0
+    
+    while start < len(content):
+        # Tính toán end position
+        end = start + chunk_size
+        
+        if end >= len(content):
+            # Chunk cuối cùng
+            chunks.append(content[start:])
+            break
+        
+        # Tìm điểm cắt tự nhiên (ưu tiên paragraph, sentence)
+        chunk_end = end
+        
+        # Tìm xuống dòng gần nhất (paragraph break)
+        for i in range(end, max(start + chunk_size // 2, start + 100), -1):
+            if i < len(content) and content[i] == '\n' and content[i-1] == '\n':
+                chunk_end = i
+                break
+        else:
+            # Nếu không tìm thấy paragraph break, tìm xuống dòng đơn
+            for i in range(end, max(start + chunk_size // 2, start + 100), -1):
+                if i < len(content) and content[i] == '\n':
+                    chunk_end = i
+                    break
+            else:
+                # Nếu không tìm thấy xuống dòng, tìm dấu câu
+                for i in range(end, max(start + chunk_size // 2, start + 100), -1):
+                    if i < len(content) and content[i] in '.!?':
+                        chunk_end = i + 1
+                        break
+                else:
+                    # Nếu không tìm thấy dấu câu, tìm khoảng trắng
+                    for i in range(end, max(start + chunk_size // 2, start + 100), -1):
+                        if i < len(content) and content[i] == ' ':
+                            chunk_end = i
+                            break
+                    else:
+                        # Cuối cùng, cắt cứng
+                        chunk_end = end
+        
+        # Thêm chunk
+        chunk = content[start:chunk_end].strip()
+        if chunk:
+            chunks.append(chunk)
+        
+        # Cập nhật start position với overlap
+        start = max(chunk_end - chunk_overlap, start + 1)
+    
+    return chunks
+
+
+def load_new_documents(file_path: str, metadata, chunk_size: int = 6000, chunk_overlap: int = 600) -> list:
+    """
+    Load documents from various file formats with content splitting
+    
+    Args:
+        file_path: Đường dẫn đến file
+        metadata: Metadata cho document
+        chunk_size: Kích thước tối đa của mỗi chunk (ký tự)
+        chunk_overlap: Số ký tự overlap giữa các chunk
+    
+    Returns:
+        List các Document đã được chia nhỏ
+    """
     documents = []
     
     try:
@@ -1177,14 +1262,115 @@ def load_new_documents(file_path: str, metadata) -> list:
                     except Exception as e:
                         logger.error(f"Error loading document with standard loader: {str(e)}")
                 
-                # Tạo một Document duy nhất với nội dung đã kết hợp
+                # Chia nội dung thành các chunk nhỏ hơn
                 if combined_content and combined_content.strip():
-                    metadata_dict = metadata.dict(by_alias=True) if hasattr(metadata, 'dict') else metadata
-                    documents.append(Document(
-                        page_content=combined_content.strip(), 
-                        metadata=metadata_dict
-                    ))
-                    logger.info(f"Successfully created 1 combined document from {file_path}")
+                    chunks = split_content_into_chunks(combined_content.strip(), chunk_size, chunk_overlap)
+                    
+                    # Tạo Document cho mỗi chunk
+                    logger.info(f"Splitting content into {len(chunks)} chunks")
+                    for i, chunk in enumerate(chunks):
+                        if chunk and chunk.strip():
+                            # Tạo metadata cho từng chunk (chỉ thêm chunk_index)
+                            chunk_metadata = metadata.copy() if isinstance(metadata, dict) else metadata.dict(by_alias=True) if hasattr(metadata, 'dict') else metadata
+                            # chunk_metadata['chunk_index'] = i
+                            # chunk_metadata['total_chunks'] = len(chunks)
+                            
+                            documents.append(Document(
+                                page_content=chunk.strip(),
+                                metadata=chunk_metadata
+                            ))
+                    
+                    logger.info(f"Successfully created {len(documents)} document chunks from {file_path}")
+                else:
+                    logger.warning(f"No content extracted from file: {file_path}")
+                
+            except Exception as e:
+                logger.error(f"Error processing file {file_path}: {str(e)}")
+        else:
+            logger.warning(f"Unsupported file extension: {extension} for file {file_path}")
+            
+    except Exception as e:
+        logger.error(f"Unexpected error in load_new_documents for {file_path}: {str(e)}")
+    
+    return documents
+
+
+def load_new_documents_simple(file_path: str, metadata, chunk_size: int = 2000) -> list:
+    """
+    Phiên bản đơn giản hơn - chỉ chia theo kích thước cố định, không có metadata bổ sung
+    
+    Args:
+        file_path: Đường dẫn đến file  
+        metadata: Metadata gốc
+        chunk_size: Kích thước tối đa của mỗi chunk
+    
+    Returns:
+        List các Document đã được chia nhỏ (không có metadata bổ sung)
+    """
+    documents = []
+    
+    try:
+        if not os.path.exists(file_path):
+            logger.error(f"File not found: {file_path}")
+            return documents
+
+        extension = file_path.lower().split('.')[-1]
+        supported_extensions = {
+            'pdf': 'pdf_smart',
+            'txt': TextLoader,
+            'docx': 'docx_with_tables',
+            'csv': CSVLoader,
+            'xlsx': UnstructuredExcelLoader,
+            'xls': UnstructuredExcelLoader
+        }
+
+        if extension in supported_extensions:
+            try:
+                logger.info(f"Loading document: {file_path} with extension {extension}")
+                combined_content = ""
+                
+                if extension == 'pdf':
+                    try:
+                        texts = process_pdf_smart(file_path)
+                        for text in texts:
+                            if text and text.strip():
+                                combined_content += text + "\n\n"
+                    except Exception as e:
+                        logger.error(f"Error processing PDF {file_path}: {str(e)}")
+                
+                elif extension == 'docx':
+                    try:
+                        combined_content = extract_docx_with_tables(file_path)
+                    except Exception as e:
+                        logger.error(f"Error processing DOCX {file_path}: {str(e)}")
+                        
+                else:
+                    try:
+                        loader = supported_extensions[extension](file_path)
+                        loaded_docs = loader.load()
+                        for doc in loaded_docs:
+                            if doc.page_content and doc.page_content.strip():
+                                combined_content += doc.page_content + "\n\n"
+                    except Exception as e:
+                        logger.error(f"Error loading document with standard loader: {str(e)}")
+                
+                # Chia nội dung thành chunks đơn giản (cứ mỗi chunk_size ký tự)
+                if combined_content and combined_content.strip():
+                    content = combined_content.strip()
+                    
+                    # Sử dụng metadata gốc không thay đổi
+                    original_metadata = metadata.dict(by_alias=True) if hasattr(metadata, 'dict') else metadata
+                    
+                    # Chia thành chunks
+                    for i in range(0, len(content), chunk_size):
+                        chunk = content[i:i + chunk_size]
+                        if chunk and chunk.strip():
+                            documents.append(Document(
+                                page_content=chunk.strip(),
+                                metadata=original_metadata  # Metadata gốc, không thêm gì
+                            ))
+                    
+                    logger.info(f"Successfully created {len(documents)} document chunks from {file_path}")
                 else:
                     logger.warning(f"No content extracted from file: {file_path}")
                 
