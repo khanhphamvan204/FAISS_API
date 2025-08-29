@@ -45,8 +45,8 @@ def _create_embedding_model():
     
     # Option 1: HuggingFace Embeddings (nhẹ nhất, không cần GPU)
     model = HuggingFaceEmbeddings(
-        model_name="AITeamVN/Vietnamese_Embedding",
-        model_kwargs={'device': 'cuda'}, 
+        model_name="dangvantuan/vietnamese-document-embedding",
+        model_kwargs={'device': 'cuda','trust_remote_code':True}, 
         encode_kwargs={'normalize_embeddings': True}
     )
     

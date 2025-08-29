@@ -359,6 +359,13 @@ async def update_vector_document(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error updating document: {str(e)}")
 
+
+def standardization(distance:float) -> float:
+    """Chuyển đổi khoảng cách L2 thành điểm tương đồng (similarity score) trong khoảng [0, 1]."""
+    if distance < 0:
+        return 0.0
+    else:
+        return 1 / (1 + distance)
 @router.post("/search", response_model=VectorSearchResponse)
 async def search_vector_documents(
     request: VectorSearchRequest,
@@ -405,8 +412,13 @@ async def search_vector_documents(
             
             # IMPORTANT: FAISS L2 distance - lower score = more similar
             # Filter by similarity threshold (lower threshold = stricter)
+
+            standardization_docs = [
+                (doc, standardization(score)) for doc, score in docs_with_scores 
+            ]
+
             filtered_docs = [
-                (doc, score) for doc, score in docs_with_scores 
+                (doc, score) for doc, score in standardization_docs
                 if score >= request.similarity_threshold  
             ]
             
