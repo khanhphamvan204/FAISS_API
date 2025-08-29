@@ -244,35 +244,55 @@ async def update_vector_document(
         current_filename = current_doc.get('filename')
         current_file_path = current_doc.get('url')
         
+        # Handle filename validation and extension protection
+        final_filename = current_filename
+        if filename:
+            # Get current file extension
+            current_name, current_extension = os.path.splitext(current_filename)
+            input_name, input_extension = os.path.splitext(filename)
+            
+            # Check if user provided an extension in the filename input
+            if input_extension:
+                raise HTTPException(
+                    status_code=400, 
+                    detail=f"Please provide filename without extension. Current file extension '{current_extension}' will be preserved automatically."
+                )
+            
+            # Combine new filename with original extension
+            final_filename = filename + current_extension
+            
+            # Validate the preserved extension is still supported
+            supported_extensions = {'.pdf', '.txt', '.docx', '.csv', '.xlsx', '.xls'}
+            if current_extension.lower() not in supported_extensions:
+                raise HTTPException(
+                    status_code=400, 
+                    detail=f"Current file extension '{current_extension}' is not supported"
+                )
+        
         # Check for duplicate filename if filename is being changed
-        if filename and filename != current_filename:
+        if filename and final_filename != current_filename:
             target_file_type = file_type if file_type else current_file_type
-            target_file_path, _ = get_file_paths(target_file_type, filename)
+            target_file_path, _ = get_file_paths(target_file_type, final_filename)
             if os.path.exists(target_file_path):
                 raise HTTPException(
-                status_code=409,
-                detail=f"File '{filename}' already exists in {target_file_type} category at path: {target_file_path}"
-            )
-        
-        if filename:
-            supported_extensions = {'.pdf', '.txt', '.docx', '.csv', '.xlsx', '.xls'}
-            if os.path.splitext(filename.lower())[1] not in supported_extensions:
-                raise HTTPException(status_code=400, detail=f"File format not supported")
+                    status_code=409,
+                    detail=f"File '{final_filename}' already exists in {target_file_type} category at path: {target_file_path}"
+                )
         
         if file_type and file_type not in Config.FILE_TYPE_PATHS:
             raise HTTPException(status_code=400, detail=f"Invalid file_type")
         
-        new_filename = filename or current_filename
+        new_filename = final_filename
         new_file_type = file_type or current_file_type
         new_uploaded_by = uploaded_by or current_doc.get('uploaded_by')
         
         current_role = current_doc.get('role', {'user': [], 'subject': []})
         new_role = {
             'user': json.loads(role_user) if role_user else current_role.get('user', []),
-            'subject': json.loads(role_subject) if role_subject else current_role.get('subject', [])
+            'subject': json.loads(role_subject) if role_subject else current_role.get('user', [])
         } if role_user or role_subject else current_role
         
-        filename_changed = filename and filename != current_filename
+        filename_changed = filename and new_filename != current_filename
         file_type_changed = file_type and file_type != current_file_type
         
         operations = {
